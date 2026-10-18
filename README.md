@@ -33,7 +33,7 @@ Drag files onto the window. Hold a modifier to switch the radial menu:
 
 ### Command line
 ```bash
-# Convert files (writes <name>_converted.<ext> next to the source)
+# Convert one or more files (writes <name>_converted.<ext> next to each source)
 tangerine --convert-to webp photo.png
 tangerine --convert-to jpg *.heic
 
@@ -48,6 +48,9 @@ tangerine --preferences
 # Show the radial menu for files (default)
 tangerine photo.png video.mp4
 ```
+
+### GUI file queue
+Drop files onto the window and they appear in a per-file queue (basename + status + remove button). With no modifier held, Tangerine auto-converts them to the default format; failures show an error toast.
 
 ### File managers
 - **Nautilus**: `data/nautilus/tangerine-convert` (installs to
@@ -89,6 +92,10 @@ meson test -C builddir        # runs the conversion test suite
 GSETTINGS_SCHEMA_DIR=builddir ./builddir/tangerine
 ```
 Or install it system-wide: `meson install -C builddir`.
+
+## CI
+GitHub Actions builds and runs `meson test` on every push/PR to `master`
+(`.github/workflows/ci.yml`).
 
 ## Flatpak Build
 ```bash

@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    container: ubuntu:24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          apt-get update -y
+          DEBIAN_FRONTEND=noninteractive apt-get install -y \
+            meson ninja-build gcc pkg-config \
+            libgtk-4-dev libadwaita-1-dev \
+            libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
+            libavformat-dev libvips-dev libpoppler-glib-dev \
+            libarchive-dev libyaml-dev libgdk-pixbuf-2.0-dev \
+            libglib2.0-bin curl ca-certificates
+
+      - name: Build
+        run: |
+          meson setup builddir
+          meson compile -C builddir
+
+      - name: Test
+        run: |
+          GSETTINGS_SCHEMA_DIR=$(pwd)/builddir meson test -C builddir --print-errorlogs

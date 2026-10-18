@@ -22,6 +22,7 @@ static GtkWidget *status_label = NULL;
 static GtkWidget *spinner = NULL;
 
 static GList *dropped_files = NULL;
+static GtkListBox *file_queue = NULL;
 static guint conversions_pending = 0;
 static guint conversions_ok = 0;
 static guint conversions_failed = 0;
@@ -36,6 +37,73 @@ static GList *cli_files = NULL;
 static void clear_dropped_files(void) {
   g_list_free_full(dropped_files, g_object_unref);
   dropped_files = NULL;
+}
+
+static void on_remove_file(GtkButton *button G_GNUC_UNUSED, gpointer data);
+
+static void rebuild_file_queue(void) {
+  gtk_list_box_remove_all(file_queue);
+  if (!dropped_files) {
+    gtk_widget_set_visible(GTK_WIDGET(file_queue), FALSE);
+    return;
+  }
+  gtk_widget_set_visible(GTK_WIDGET(file_queue), TRUE);
+
+  for (GList *l = dropped_files; l; l = l->next) {
+    GFile *f = l->data;
+    char *name = g_file_get_basename(f);
+
+    GtkWidget *row = gtk_list_box_row_new();
+    GtkWidget *hbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+    gtk_widget_set_margin_top(hbox, 4);
+    gtk_widget_set_margin_bottom(hbox, 4);
+    gtk_widget_set_margin_start(hbox, 8);
+    gtk_widget_set_margin_end(hbox, 8);
+
+    GtkWidget *lbl = gtk_label_new(name);
+    gtk_label_set_xalign(GTK_LABEL(lbl), 0);
+    gtk_label_set_ellipsize(GTK_LABEL(lbl), PANGO_ELLIPSIZE_MIDDLE);
+    gtk_widget_set_hexpand(lbl, TRUE);
+    gtk_box_append(GTK_BOX(hbox), lbl);
+
+    GtkWidget *status = gtk_label_new("queued");
+    gtk_label_set_xalign(GTK_LABEL(status), 1);
+    gtk_widget_add_css_class(status, "dim-label");
+    gtk_box_append(GTK_BOX(hbox), status);
+    g_object_set_data_full(G_OBJECT(row), "tangerine-status-label", g_object_ref(status), g_object_unref);
+
+    GtkWidget *remove = gtk_button_new_from_icon_name("edit-delete-symbolic");
+    gtk_button_set_has_frame(GTK_BUTTON(remove), FALSE);
+    gtk_widget_set_tooltip_text(remove, "Remove from queue");
+    g_object_set_data_full(G_OBJECT(row), "tangerine-file", g_object_ref(f), g_object_unref);
+    g_signal_connect(remove, "clicked", G_CALLBACK(on_remove_file), row);
+    gtk_box_append(GTK_BOX(hbox), remove);
+
+    gtk_list_box_row_set_child(GTK_LIST_BOX_ROW(row), hbox);
+    gtk_list_box_append(file_queue, row);
+    g_free(name);
+  }
+}
+
+static void on_remove_file(GtkButton *button G_GNUC_UNUSED, gpointer data) {
+  GtkWidget *row = GTK_WIDGET(data);
+  GFile *f = g_object_get_data(G_OBJECT(row), "tangerine-file");
+  if (f) {
+    dropped_files = g_list_remove(dropped_files, f);
+    g_object_unref(f);
+  }
+  rebuild_file_queue();
+}
+
+static void set_queue_status(const char *status) {
+  if (!dropped_files || !file_queue) return;
+  guint i = 0;
+  for (GList *l = dropped_files; l; l = l->next, i++) {
+    GtkListBoxRow *row = gtk_list_box_get_row_at_index(file_queue, i);
+    if (!row) continue;
+    GtkWidget *lbl = g_object_get_data(G_OBJECT(row), "tangerine-status-label");
+    if (lbl) gtk_label_set_label(GTK_LABEL(lbl), status);
+  }
 }
 
 static char *default_output_format(void) {
@@ -93,6 +161,7 @@ static void set_converting(gboolean converting) {
       gtk_widget_set_visible(spinner, FALSE);
     }
   }
+  if (dropped_files) set_queue_status(converting ? "converting" : "done");
   if (status_label) {
     if (converting) {
       gtk_label_set_label(GTK_LABEL(status_label), "Converting…");
@@ -140,7 +209,10 @@ static void on_conversion_complete(TangerineConversionResult result, const char 
     g_print("Conversion complete: %s\n", output_path);
   } else {
     conversions_failed++;
-    g_print("Conversion failed: %s\n", error ? error : "Unknown error");
+    char *msg = g_strdup_printf("Conversion failed: %s", error ? error : "Unknown error");
+    g_print("%s\n", msg);
+    show_toast(msg);
+    g_free(msg);
   }
 
   if (conversions_pending > 0) conversions_pending--;
@@ -298,6 +370,7 @@ static gboolean on_drop(GtkDropTarget *target, const GValue *value, double x G_G
   for (GSList *l = files; l; l = l->next)
     dropped_files = g_list_prepend(dropped_files, g_object_ref(l->data));
   dropped_files = g_list_reverse(dropped_files);
+  rebuild_file_queue();
 
   GdkModifierType state = gtk_event_controller_get_current_event_state(GTK_EVENT_CONTROLLER(target));
 
@@ -378,6 +451,14 @@ static void ensure_ui(GtkApplication *app, gboolean present) {
   status_label = gtk_label_new("Drop files here");
   gtk_label_set_justify(GTK_LABEL(status_label), GTK_JUSTIFY_CENTER);
   gtk_box_append(GTK_BOX(inner), status_label);
+
+  file_queue = GTK_LIST_BOX(gtk_list_box_new());
+  gtk_list_box_set_selection_mode(file_queue, GTK_SELECTION_NONE);
+  gtk_widget_set_hexpand(GTK_WIDGET(file_queue), TRUE);
+  gtk_widget_set_vexpand(GTK_WIDGET(file_queue), FALSE);
+  gtk_widget_set_margin_top(GTK_WIDGET(file_queue), 12);
+  gtk_widget_set_visible(GTK_WIDGET(file_queue), FALSE);
+  gtk_box_append(GTK_BOX(inner), GTK_WIDGET(file_queue));
 
   adw_toolbar_view_set_content(view, inner);
 
