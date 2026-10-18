@@ -101,7 +101,8 @@ install_data('data/nautilus/tangerine-convert',
 install_data('data/kio/tangerine-servicemenu.desktop',
   install_dir: join_paths(datadir, 'kio', 'servicemenus'))
 
-# Compile GSettings schema for running from the build directory
+# Compile GSettings schema into builddir so `meson test` and dev runs work
+# with GSETTINGS_SCHEMA_DIR=builddir.
 glib_compile_schemas = find_program('glib-compile-schemas', required: false)
 if glib_compile_schemas.found()
   custom_target('gschemas-compiled',
@@ -111,3 +112,4 @@ if glib_compile_schemas.found()
       meson.current_source_dir() / 'data'],
     build_by_default: true)
 endif
+

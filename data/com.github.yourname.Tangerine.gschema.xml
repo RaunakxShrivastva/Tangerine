@@ -16,6 +16,11 @@
       <summary>Save output next to the source file</summary>
       <description>When false, use output-directory instead</description>
     </key>
+    <key name="default-output-format" type="s">
+      <default>"jpg"</default>
+      <summary>Default format when converting with no modifier</summary>
+      <description>Format used when dropping files without holding a modifier</description>
+    </key>
     <key name="show-notifications" type="b">
       <default>true</default>
       <summary>Show completion notifications</summary>

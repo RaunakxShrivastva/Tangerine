@@ -8,6 +8,19 @@ static GMainLoop *loop = NULL;
 static gboolean finished = FALSE;
 static gboolean success = FALSE;
 
+typedef struct {
+  GMainLoop *loop;
+  guint remaining;
+  gboolean all_ok;
+} ConvCtx;
+
+static void uniq_complete(TangerineConversionResult result, const char *output_path G_GNUC_UNUSED, const char *error G_GNUC_UNUSED, gpointer data) {
+  ConvCtx *ctx = data;
+  if (result != TANGERINE_CONVERSION_SUCCESS) ctx->all_ok = FALSE;
+  ctx->remaining--;
+  if (ctx->remaining == 0) g_main_loop_quit(ctx->loop);
+}
+
 static void on_complete(TangerineConversionResult result, const char *output_path, const char *error, gpointer data G_GNUC_UNUSED) {
   if (result == TANGERINE_CONVERSION_SUCCESS) {
     g_print("OK: converted -> %s\n", output_path);
@@ -95,6 +108,29 @@ int main(void) {
   g_assert_cmpint(g_mkdir(out_dir, 0755), ==, 0);
   all_ok &= run_conversion(png, "jpg", out_dir);
   g_free(out_dir);
+
+  g_print("[test] same input twice -> unique output names\n");
+  char *base = g_path_get_basename(png);
+  char *dot = strrchr(base, '.'); if (dot) *dot = '\0';
+  char *expected1 = g_strdup_printf("%s/%s_converted.jpg", dir, base);
+  char *expected2 = g_strdup_printf("%s/%s_converted_1.jpg", dir, base);
+
+  ConvCtx ctx = { .loop = g_main_loop_new(NULL, FALSE), .remaining = 2, .all_ok = TRUE };
+  TangerineConversionEngine *engine = tangerine_conversion_engine_new();
+  tangerine_conversion_engine_convert(engine, png, "jpg", NULL, uniq_complete, &ctx);
+  tangerine_conversion_engine_convert(engine, png, "jpg", NULL, uniq_complete, &ctx);
+  g_main_loop_run(ctx.loop);
+  g_main_loop_unref(ctx.loop);
+  g_object_unref(engine);
+
+  gboolean ok = ctx.all_ok &&
+    g_file_test(expected1, G_FILE_TEST_IS_REGULAR) &&
+    g_file_test(expected2, G_FILE_TEST_IS_REGULAR);
+  g_print("  %s\n", ok ? "both unique outputs exist" : "MISSING output(s)");
+  all_ok &= ok;
+  g_free(expected1);
+  g_free(expected2);
+  g_free(base);
 
   GList *missing = tangerine_conversion_engine_missing_tools();
   for (GList *l = missing; l; l = l->next)

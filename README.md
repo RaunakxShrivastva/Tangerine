@@ -22,11 +22,14 @@ Drag files onto the window. Hold a modifier to switch the radial menu:
 
 | Modifier | Menu |
 |----------|------|
-| (none)   | Convert |
+| (none)   | Auto-convert to default format (jpg) |
 | Shift    | Tools |
 | Ctrl     | File operations |
 
 `Super+Shift+V` also opens the convert menu.
+
+- Dropping files auto-converts them to `default-output-format` (jpg by default, settable in Preferences). Outputs are written `<name>_converted.<ext>` next to the source; if that exists, `_1`, `_2`… is appended.
+- Conversion progress and results show as in-app toasts and desktop notifications.
 
 ### Command line
 ```bash

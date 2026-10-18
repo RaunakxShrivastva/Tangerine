@@ -561,10 +561,22 @@ void tangerine_conversion_engine_convert(TangerineConversionEngine *self,
   char *base = g_path_get_basename(input_path);
   char *dot = strrchr(base, '.');
   if (dot) *dot = '\0';
-  char *output_path = g_strdup_printf("%s/%s_converted.%s", dir, base, output_format);
+  char *ext = g_strdup(output_format);
+  char *output_path = NULL;
+  int counter = 0;
+  while (TRUE) {
+    g_free(output_path);
+    if (counter == 0)
+      output_path = g_strdup_printf("%s/%s_converted.%s", dir, base, ext);
+    else
+      output_path = g_strdup_printf("%s/%s_converted_%d.%s", dir, base, counter, ext);
+    if (!g_file_test(output_path, G_FILE_TEST_EXISTS)) break;
+    counter++;
+  }
 
   g_free(dir);
   g_free(base);
+  g_free(ext);
 
   tangerine_conversion_engine_convert_to(self, input_path, output_path, pipeline,
     progress_cb, complete_cb, user_data);

@@ -7,7 +7,7 @@
 #include "preferences.h"
 
 #define TANGERINE_APP_ID "com.github.yourname.Tangerine"
-#define TANGERINE_VERSION "0.4.0"
+#define TANGERINE_VERSION "0.5.0"
 
 static TangerineRadialMenu *radial_menu = NULL;
 static TangerineDragMonitor *drag_monitor = NULL;
@@ -16,6 +16,10 @@ static GtkWindow *main_window = NULL;
 static AdwApplication *app_instance = NULL;
 static GSettings *settings = NULL;
 static gboolean ui_ready = FALSE;
+
+static AdwToastOverlay *toast_overlay = NULL;
+static GtkWidget *status_label = NULL;
+static GtkWidget *spinner = NULL;
 
 static GList *dropped_files = NULL;
 static guint conversions_pending = 0;
@@ -34,8 +38,16 @@ static void clear_dropped_files(void) {
   dropped_files = NULL;
 }
 
+static char *default_output_format(void) {
+  if (!settings) return g_strdup("jpg");
+  return g_settings_get_string(settings, "default-output-format");
+}
+
 static void notify(const char *title, const char *body) {
-  if (!app_instance) return;
+  if (!app_instance) {
+    g_print("%s: %s\n", title, body);
+    return;
+  }
   if (settings && !g_settings_get_boolean(settings, "show-notifications")) {
     g_print("%s: %s\n", title, body);
     return;
@@ -44,6 +56,14 @@ static void notify(const char *title, const char *body) {
   g_notification_set_body(n, body);
   g_application_send_notification(G_APPLICATION(app_instance), "tangerine-result", n);
   g_object_unref(n);
+}
+
+static void show_toast(const char *message) {
+  if (!toast_overlay) return;
+  AdwToast *toast = adw_toast_new(message);
+  adw_toast_set_timeout(toast, 3000);
+  adw_toast_overlay_add_toast(toast_overlay, toast);
+  g_object_unref(toast);
 }
 
 static TangerineActionMode mode_from_modifiers(GdkModifierType state) {
@@ -63,6 +83,27 @@ static void apply_output_settings(void) {
   }
 }
 
+static void set_converting(gboolean converting) {
+  if (spinner) {
+    if (converting) {
+      gtk_spinner_start(GTK_SPINNER(spinner));
+      gtk_widget_set_visible(spinner, TRUE);
+    } else {
+      gtk_spinner_stop(GTK_SPINNER(spinner));
+      gtk_widget_set_visible(spinner, FALSE);
+    }
+  }
+  if (status_label) {
+    if (converting) {
+      gtk_label_set_label(GTK_LABEL(status_label), "Converting…");
+    } else {
+      gtk_label_set_markup(GTK_LABEL(status_label),
+        "<span size='large' weight='bold'>Drop files here</span>\n"
+        "<small>No modifier: convert  ·  Shift: tools  ·  Ctrl: file ops</small>");
+    }
+  }
+}
+
 static void release_if_held(void) {
   if (held_application) {
     held_application = FALSE;
@@ -77,6 +118,8 @@ static void on_conversion_progress(double progress, const char *status, gpointer
 static void conversion_maybe_finish(void) {
   if (conversions_pending > 0) return;
 
+  set_converting(FALSE);
+
   char *msg;
   if (conversions_failed == 0)
     msg = g_strdup_printf("Converted %u file(s) successfully", conversions_ok);
@@ -84,6 +127,7 @@ static void conversion_maybe_finish(void) {
     msg = g_strdup_printf("%u succeeded, %u failed", conversions_ok, conversions_failed);
 
   notify("Tangerine", msg);
+  show_toast(msg);
   g_print("Done: %s\n", msg);
   g_free(msg);
 
@@ -106,6 +150,7 @@ static void on_conversion_complete(TangerineConversionResult result, const char 
 static void on_file_op_done(gboolean success, const char *message, gpointer user_data G_GNUC_UNUSED) {
   g_print("File op: %s (%s)\n", message, success ? "ok" : "failed");
   notify("Tangerine", message);
+  show_toast(message);
   release_if_held();
 }
 
@@ -174,6 +219,7 @@ static void execute_action(const char *action_id) {
 
     if (format) {
       conversions_pending++;
+      set_converting(TRUE);
       tangerine_conversion_engine_convert(conversion_engine, path, format,
         on_conversion_progress, on_conversion_complete, NULL);
     }
@@ -183,6 +229,7 @@ static void execute_action(const char *action_id) {
 
   if (conversions_pending == 0) {
     notify("Tangerine", "Nothing to convert");
+    show_toast("Nothing to convert");
     release_if_held();
   }
 }
@@ -253,6 +300,28 @@ static gboolean on_drop(GtkDropTarget *target, const GValue *value, double x G_G
   dropped_files = g_list_reverse(dropped_files);
 
   GdkModifierType state = gtk_event_controller_get_current_event_state(GTK_EVENT_CONTROLLER(target));
+
+  char *default_fmt = default_output_format();
+  gboolean direct_convert = (state & GDK_CONTROL_MASK) == FALSE &&
+    (state & GDK_SHIFT_MASK) == FALSE && default_fmt && *default_fmt;
+
+  g_print("Dropped %u file(s), modifiers=0x%x\n", g_list_length(dropped_files), state);
+
+  if (direct_convert) {
+    TangerineActionMode mode = mode_from_modifiers(state);
+    if (mode == TANGERINE_ACTION_CONVERT) {
+      g_application_hold(G_APPLICATION(app_instance));
+      held_application = TRUE;
+      g_print("Auto-converting %u file(s) to %s\n", g_list_length(dropped_files), default_fmt);
+      char *action = g_strdup_printf("convert-%s", default_fmt);
+      execute_action(action);
+      g_free(action);
+      g_free(default_fmt);
+      return TRUE;
+    }
+  }
+  g_free(default_fmt);
+
   show_menu(mode_from_modifiers(state));
   return TRUE;
 }
@@ -279,7 +348,7 @@ static void ensure_ui(GtkApplication *app, gboolean present) {
   GtkWidget *window = gtk_application_window_new(app);
   main_window = GTK_WINDOW(window);
   gtk_window_set_title(GTK_WINDOW(window), "Tangerine");
-  gtk_window_set_default_size(GTK_WINDOW(window), 360, 280);
+  gtk_window_set_default_size(GTK_WINDOW(window), 380, 300);
 
   AdwToolbarView *view = ADW_TOOLBAR_VIEW(adw_toolbar_view_new());
 
@@ -290,27 +359,31 @@ static void ensure_ui(GtkApplication *app, gboolean present) {
   adw_header_bar_pack_end(header, prefs_button);
   adw_toolbar_view_add_top_bar(view, GTK_WIDGET(header));
 
-  GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 12);
-  gtk_widget_set_valign(box, GTK_ALIGN_CENTER);
-  gtk_widget_set_halign(box, GTK_ALIGN_CENTER);
-  gtk_widget_set_margin_top(box, 24);
-  gtk_widget_set_margin_bottom(box, 24);
-  gtk_widget_set_margin_start(box, 24);
-  gtk_widget_set_margin_end(box, 24);
+  GtkWidget *inner = gtk_box_new(GTK_ORIENTATION_VERTICAL, 12);
+  gtk_widget_set_valign(inner, GTK_ALIGN_CENTER);
+  gtk_widget_set_halign(inner, GTK_ALIGN_CENTER);
+  gtk_widget_set_margin_top(inner, 24);
+  gtk_widget_set_margin_bottom(inner, 24);
+  gtk_widget_set_margin_start(inner, 24);
+  gtk_widget_set_margin_end(inner, 24);
 
   GtkWidget *icon = gtk_image_new_from_icon_name("folder-download-symbolic");
   gtk_image_set_pixel_size(GTK_IMAGE(icon), 64);
-  gtk_box_append(GTK_BOX(box), icon);
+  gtk_box_append(GTK_BOX(inner), icon);
 
-  GtkWidget *label = gtk_label_new(NULL);
-  gtk_label_set_markup(GTK_LABEL(label),
-    "<span size='large' weight='bold'>Drop files here</span>\n"
-    "<small>No modifier: convert  ·  Shift: tools  ·  Ctrl: file ops</small>");
-  gtk_label_set_justify(GTK_LABEL(label), GTK_JUSTIFY_CENTER);
-  gtk_box_append(GTK_BOX(box), label);
+  spinner = gtk_spinner_new();
+  gtk_widget_set_visible(spinner, FALSE);
+  gtk_box_append(GTK_BOX(inner), spinner);
 
-  adw_toolbar_view_set_content(view, box);
-  gtk_window_set_child(GTK_WINDOW(window), GTK_WIDGET(view));
+  status_label = gtk_label_new("Drop files here");
+  gtk_label_set_justify(GTK_LABEL(status_label), GTK_JUSTIFY_CENTER);
+  gtk_box_append(GTK_BOX(inner), status_label);
+
+  adw_toolbar_view_set_content(view, inner);
+
+  toast_overlay = ADW_TOAST_OVERLAY(adw_toast_overlay_new());
+  adw_toast_overlay_set_child(toast_overlay, GTK_WIDGET(view));
+  gtk_window_set_child(GTK_WINDOW(window), GTK_WIDGET(toast_overlay));
 
   GtkDropTarget *target = gtk_drop_target_new(GDK_TYPE_FILE_LIST, GDK_ACTION_COPY);
   g_signal_connect(target, "drop", G_CALLBACK(on_drop), NULL);
@@ -372,7 +445,7 @@ static gboolean on_command_line(GApplication *application, GApplicationCommandLi
   if (cli_preferences) {
     GtkWindow *window = gtk_application_get_active_window(GTK_APPLICATION(application));
     GtkWidget *prefs = tangerine_preferences_new(settings, window);
-    adw_dialog_present(ADW_DIALOG(prefs), window ? GTK_WIDGET(window) : NULL);
+    adw_dialog_present(ADW_DIALOG(prefs), window ? GTK_WIDGET(window) : GTK_WIDGET(main_window));
     return 0;
   }
 
