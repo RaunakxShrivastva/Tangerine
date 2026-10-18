@@ -8,6 +8,7 @@ struct _TangerineConversionEngine {
   GHashTable *format_map;
   GThreadPool *thread_pool;
   GCancellable *global_cancellable;
+  char *output_dir;
 };
 
 typedef struct {
@@ -398,17 +399,36 @@ static void job_thread_func(gpointer data, gpointer user_data G_GNUC_UNUSED) {
   conversion_job_free(job);
 }
 
-static void tangerine_conversion_engine_class_init(TangerineConversionEngineClass *klass G_GNUC_UNUSED) {
+static void tangerine_conversion_engine_finalize(GObject *object) {
+  TangerineConversionEngine *self = TANGERINE_CONVERSION_ENGINE(object);
+
+  if (self->thread_pool) g_thread_pool_free(self->thread_pool, TRUE, TRUE);
+  if (self->format_map) g_hash_table_unref(self->format_map);
+  if (self->global_cancellable) g_object_unref(self->global_cancellable);
+  g_free(self->output_dir);
+
+  G_OBJECT_CLASS(tangerine_conversion_engine_parent_class)->finalize(object);
+}
+
+static void tangerine_conversion_engine_class_init(TangerineConversionEngineClass *klass) {
+  GObjectClass *object_class = G_OBJECT_CLASS(klass);
+  object_class->finalize = tangerine_conversion_engine_finalize;
 }
 
 static void tangerine_conversion_engine_init(TangerineConversionEngine *self) {
   self->format_map = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, g_free);
   self->thread_pool = g_thread_pool_new(job_thread_func, self, 4, FALSE, NULL);
   self->global_cancellable = g_cancellable_new();
+  self->output_dir = NULL;
 }
 
 TangerineConversionEngine *tangerine_conversion_engine_new(void) {
   return g_object_new(TANGERINE_TYPE_CONVERSION_ENGINE, NULL);
+}
+
+void tangerine_conversion_engine_set_output_dir(TangerineConversionEngine *self, const char *dir) {
+  g_free(self->output_dir);
+  self->output_dir = (dir && *dir) ? g_strdup(dir) : NULL;
 }
 
 static void load_yaml_formats(TangerineConversionEngine *self, const char *yaml_path) {
@@ -537,7 +557,7 @@ void tangerine_conversion_engine_convert(TangerineConversionEngine *self,
   const char *pipeline = tangerine_conversion_engine_find_pipeline(self, input_path, output_format);
   if (!pipeline) pipeline = "default";
 
-  char *dir = g_path_get_dirname(input_path);
+  char *dir = self->output_dir ? g_strdup(self->output_dir) : g_path_get_dirname(input_path);
   char *base = g_path_get_basename(input_path);
   char *dot = strrchr(base, '.');
   if (dot) *dot = '\0';

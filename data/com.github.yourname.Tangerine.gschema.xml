@@ -11,6 +11,11 @@
       <summary>Custom output directory</summary>
       <description>If empty, saves next to source file</description>
     </key>
+    <key name="output-beside-source" type="b">
+      <default>true</default>
+      <summary>Save output next to the source file</summary>
+      <description>When false, use output-directory instead</description>
+    </key>
     <key name="show-notifications" type="b">
       <default>true</default>
       <summary>Show completion notifications</summary>

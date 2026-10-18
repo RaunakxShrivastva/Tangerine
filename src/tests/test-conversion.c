@@ -35,18 +35,19 @@ static char *make_test_png(const char *dir) {
   return path;
 }
 
-static gboolean run_conversion(const char *input, const char *format, const char *expected_suffix) {
+static gboolean run_conversion(const char *input, const char *format, const char *out_dir) {
   loop = g_main_loop_new(NULL, FALSE);
   finished = FALSE;
   success = FALSE;
 
   TangerineConversionEngine *engine = tangerine_conversion_engine_new();
+  if (out_dir) tangerine_conversion_engine_set_output_dir(engine, out_dir);
   tangerine_conversion_engine_convert(engine, input, format, NULL, on_complete, NULL);
   g_main_loop_run(loop);
 
   gboolean ok = finished && success;
   if (ok) {
-    char *dir = g_path_get_dirname(input);
+    char *dir = out_dir ? g_strdup(out_dir) : g_path_get_dirname(input);
     char *base = g_path_get_basename(input);
     char *dot = strrchr(base, '.');
     if (dot) *dot = '\0';
@@ -58,8 +59,9 @@ static gboolean run_conversion(const char *input, const char *format, const char
         g_print("  verified %s (%ld bytes)\n", out, (long)st.st_size);
       else
         ok = FALSE;
+    } else {
+      g_print("  expected output missing: %s\n", out);
     }
-    g_print("  expected suffix: %s\n", expected_suffix);
     g_free(out);
     g_free(dir);
     g_free(base);
@@ -80,13 +82,19 @@ int main(void) {
   gboolean all_ok = TRUE;
 
   g_print("[test] png -> jpg\n");
-  all_ok &= run_conversion(png, "jpg", ".jpg");
+  all_ok &= run_conversion(png, "jpg", NULL);
 
   g_print("[test] png -> webp\n");
-  all_ok &= run_conversion(png, "webp", ".webp");
+  all_ok &= run_conversion(png, "webp", NULL);
 
   g_print("[test] png -> jpeg\n");
-  all_ok &= run_conversion(png, "jpeg", ".jpeg");
+  all_ok &= run_conversion(png, "jpeg", NULL);
+
+  g_print("[test] png -> png into custom output dir\n");
+  char *out_dir = g_build_filename(dir, "out", NULL);
+  g_assert_cmpint(g_mkdir(out_dir, 0755), ==, 0);
+  all_ok &= run_conversion(png, "jpg", out_dir);
+  g_free(out_dir);
 
   GList *missing = tangerine_conversion_engine_missing_tools();
   for (GList *l = missing; l; l = l->next)

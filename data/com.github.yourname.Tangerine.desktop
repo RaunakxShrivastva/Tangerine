@@ -1,0 +1,11 @@
+[Desktop Entry]
+Name=Tangerine
+Comment=Zero-click file conversion and file operations
+Exec=tangerine %F
+Icon=com.github.yourname.Tangerine
+Terminal=false
+Type=Application
+Categories=Utility;FileTools;
+Keywords=convert;converter;compress;image;video;audio;pdf;
+StartupNotify=true
+MimeType=image/png;image/jpeg;image/webp;image/heic;image/avif;image/tiff;image/gif;image/bmp;image/svg+xml;video/mp4;video/x-matroska;video/webm;video/quicktime;audio/mpeg;audio/flac;audio/ogg;audio/wav;application/pdf;application/zip;application/x-tar;

@@ -51,6 +51,7 @@ tangerine_lib = static_library('tangerine-lib',
     'src/drag-monitor.c',
     'src/conversion-engine.c',
     'src/file-operations.c',
+    'src/preferences.c',
   ],
   dependencies: deps + [m_lib],
   include_directories: inc,
@@ -76,8 +77,37 @@ conversion_test = executable('test-conversion',
   link_with: tangerine_lib,
   c_args: ['-Wno-deprecated-declarations']
 )
-test('conversion', conversion_test, timeout: 60)
+test('conversion', conversion_test,
+  timeout: 60,
+  env: ['GSETTINGS_SCHEMA_DIR=' + meson.current_build_dir()])
 
 # Install data
+datadir = get_option('datadir')
+
 install_data('data/com.github.yourname.Tangerine.gschema.xml',
-  install_dir: join_paths(get_option('datadir'), 'glib-2.0', 'schemas'))
+  install_dir: join_paths(datadir, 'glib-2.0', 'schemas'))
+
+install_data('src/formats.yaml',
+  install_dir: join_paths(datadir, 'tangerine'))
+
+install_data('data/com.github.yourname.Tangerine.desktop',
+  install_dir: join_paths(datadir, 'applications'))
+
+# File manager integrations
+install_data('data/nautilus/tangerine-convert',
+  install_dir: join_paths(datadir, 'nautilus', 'scripts'),
+  install_mode: 'rwxr-xr-x')
+
+install_data('data/kio/tangerine-servicemenu.desktop',
+  install_dir: join_paths(datadir, 'kio', 'servicemenus'))
+
+# Compile GSettings schema for running from the build directory
+glib_compile_schemas = find_program('glib-compile-schemas', required: false)
+if glib_compile_schemas.found()
+  custom_target('gschemas-compiled',
+    output: 'gschemas.compiled',
+    input: 'data/com.github.yourname.Tangerine.gschema.xml',
+    command: [glib_compile_schemas, '--targetdir', meson.current_build_dir(),
+      meson.current_source_dir() / 'data'],
+    build_by_default: true)
+endif

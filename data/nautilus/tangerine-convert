@@ -1,0 +1,8 @@
+#!/bin/sh
+# Nautilus script: convert the selected files with Tangerine.
+# Installed to ~/.local/share/nautilus/scripts/ and shown under the
+# right-click "Scripts" submenu.
+
+if [ -n "$NAUTILUS_SCRIPT_SELECTED_FILE_PATHS" ]; then
+  printf '%s' "$NAUTILUS_SCRIPT_SELECTED_FILE_PATHS" | xargs -d '\n' tangerine
+fi

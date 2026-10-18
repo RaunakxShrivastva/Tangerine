@@ -1,0 +1,35 @@
+[Desktop Entry]
+Type=Service
+Name=Tangerine
+Name[en]=Tangerine
+ServiceTypes=KonqPopupMenu/Plugin
+MimeType=image/*;video/*;audio/*;application/pdf;application/zip;application/x-tar;
+Actions=convertJpg;convertPng;convertWebp;extractAudio;compress;
+X-KDE-Priority=TopLevel
+X-KDE-Submenu=Tangerine
+Icon=com.github.yourname.Tangerine
+
+[Desktop Action convertJpg]
+Name=Convert to JPG
+Exec=tangerine --convert-to jpg %F
+Icon=image-x-generic
+
+[Desktop Action convertPng]
+Name=Convert to PNG
+Exec=tangerine --convert-to png %F
+Icon=image-x-generic
+
+[Desktop Action convertWebp]
+Name=Convert to WebP
+Exec=tangerine --convert-to webp %F
+Icon=image-x-generic
+
+[Desktop Action extractAudio]
+Name=Extract audio (MP3)
+Exec=tangerine --convert-to mp3 %F
+Icon=audio-x-generic
+
+[Desktop Action compress]
+Name=Compress
+Exec=tangerine --action compress %F
+Icon=package-x-generic
