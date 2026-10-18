@@ -1,0 +1,29 @@
+app-id: com.github.yourname.Tangerine
+runtime: org.gnome.Platform
+runtime-version: '47'
+sdk: org.gnome.Sdk
+command: tangerine
+finish-args:
+  - --share=network
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --device=dri
+  - --filesystem=home:ro
+  - --filesystem=xdg-documents:rw
+  - --filesystem=xdg-pictures:rw
+  - --filesystem=xdg-videos:rw
+  - --filesystem=xdg-music:rw
+  - --filesystem=xdg-download:rw
+  - --talk-name=org.freedesktop.portal.Desktop
+  - --talk-name=org.freedesktop.portal.FileChooser
+  - --talk-name=org.freedesktop.portal.Background
+  - --talk-name=org.freedesktop.portal.Notification
+  - --env=GST_VAAPI_ALL_DRIVERS=1
+modules:
+  - name: tangerine
+    buildsystem: meson
+    sources:
+      - type: dir
+        path: ..
+    config-opts:
+      - -Dbuildtype=release

@@ -1,0 +1,11 @@
+builddir/
+*.o
+*.so
+*.a
+*.pc
+.vs/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store

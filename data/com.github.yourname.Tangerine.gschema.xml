@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist>
+  <schema id="com.github.yourname.Tangerine" path="/com/github/yourname/tangerine/">
+    <key name="conversion-quality" type="s">
+      <default>"high"</default>
+      <summary>Default conversion quality</summary>
+      <description>Quality preset for conversions: low, medium, high, lossless</description>
+    </key>
+    <key name="output-directory" type="s">
+      <default>""</default>
+      <summary>Custom output directory</summary>
+      <description>If empty, saves next to source file</description>
+    </key>
+    <key name="show-notifications" type="b">
+      <default>true</default>
+      <summary>Show completion notifications</summary>
+    </key>
+    <key name="modifier-convert" type="s">
+      <default>"shift"</default>
+      <summary>Modifier key for conversion menu</summary>
+      <description>shift, ctrl, super</description>
+    </key>
+    <key name="modifier-tools" type="s">
+      <default>"super"</default>
+      <summary>Modifier key for tools menu</summary>
+    </key>
+    <key name="modifier-fileops" type="s">
+      <default>"ctrl"</default>
+      <summary>Modifier key for file operations menu</summary>
+    </key>
+    <key name="radial-menu-radius" type="i">
+      <default>120</default>
+      <summary>Radial menu radius in pixels</summary>
+    </key>
+    <key name="animation-duration" type="i">
+      <default>200</default>
+      <summary>Menu animation duration in ms</summary>
+    </key>
+  </schema>
+</schemalist>
