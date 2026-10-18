@@ -44,6 +44,8 @@ void tangerine_conversion_engine_convert_to(TangerineConversionEngine *self,
   gpointer user_data);
 const char *tangerine_conversion_engine_find_pipeline(TangerineConversionEngine *self,
   const char *input_path, const char *output_format);
+char *tangerine_conversion_engine_default_output_format(TangerineConversionEngine *self,
+  const char *input_path);
 void tangerine_conversion_engine_cancel(TangerineConversionEngine *self, const char *input_path);
 
 GList *tangerine_conversion_engine_missing_tools(void);

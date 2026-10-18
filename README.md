@@ -22,13 +22,16 @@ Drag files onto the window. Hold a modifier to switch the radial menu:
 
 | Modifier | Menu |
 |----------|------|
-| (none)   | Auto-convert to default format (jpg) |
+| (none)   | Auto-convert to a smart default format |
 | Shift    | Tools |
 | Ctrl     | File operations |
 
 `Super+Shift+V` also opens the convert menu.
 
-- Dropping files auto-converts them to `default-output-format` (jpg by default, settable in Preferences). Outputs are written `<name>_converted.<ext>` next to the source; if that exists, `_1`, `_2`… is appended.
+- Dropping files with no modifier auto-converts them to a sensible format based on type:
+  heic/avif→jpg, webp→png, images keep their type, video→mp4, audio→mp3, pdf→png,
+  zip→tar, tar→zip. Outputs are written `<name>_converted.<ext>` next to the source;
+  if that exists, `_1`, `_2`… is appended.
 - Conversion progress and results show as in-app toasts and desktop notifications.
 
 ### Command line

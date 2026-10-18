@@ -137,6 +137,26 @@ int main(void) {
     g_print("  note: missing tool %s\n", (const char *)l->data);
   g_list_free(missing);
 
+  g_print("[test] default_output_format mappings\n");
+  static const struct { const char *ext; const char *expected; } cases[] = {
+    { "heic", "jpg" }, { "heif", "jpg" }, { "avif", "jpg" },
+    { "webp", "png" }, { "png", "png" }, { "jpg", "jpg" },
+    { "jpeg", "jpg" }, { "mp4", "mp4" }, { "mkv", "mp4" },
+    { "mp3", "mp3" }, { "wav", "mp3" }, { "pdf", "png" },
+    { "zip", "tar" }, { "tar", "zip" },
+  };
+  TangerineConversionEngine *e2 = tangerine_conversion_engine_new();
+  for (guint i = 0; i < G_N_ELEMENTS(cases); i++) {
+    char *in = g_strdup_printf("/tmp/test.%s", cases[i].ext);
+    char *got = tangerine_conversion_engine_default_output_format(e2, in);
+    gboolean ok = got && g_strcmp0(got, cases[i].expected) == 0;
+    if (!ok) g_print("  FAIL: %s -> %s (expected %s)\n", cases[i].ext, got ? got : "(null)", cases[i].expected);
+    all_ok &= ok;
+    g_free(got);
+    g_free(in);
+  }
+  g_object_unref(e2);
+
   g_free(png);
   g_rmdir(dir);
   g_free(dir);

@@ -106,11 +106,6 @@ static void set_queue_status(const char *status) {
   }
 }
 
-static char *default_output_format(void) {
-  if (!settings) return g_strdup("jpg");
-  return g_settings_get_string(settings, "default-output-format");
-}
-
 static void notify(const char *title, const char *body) {
   if (!app_instance) {
     g_print("%s: %s\n", title, body);
@@ -236,6 +231,13 @@ static const char *output_format_for_action(const char *action_id) {
   return NULL;
 }
 
+static void convert_one(const char *path, const char *format) {
+  conversions_pending++;
+  set_converting(TRUE);
+  tangerine_conversion_engine_convert(conversion_engine, path, format,
+    on_conversion_progress, on_conversion_complete, NULL);
+}
+
 static void execute_action(const char *action_id) {
   if (!dropped_files) {
     notify("Tangerine", "No files to act on");
@@ -290,10 +292,7 @@ static void execute_action(const char *action_id) {
     }
 
     if (format) {
-      conversions_pending++;
-      set_converting(TRUE);
-      tangerine_conversion_engine_convert(conversion_engine, path, format,
-        on_conversion_progress, on_conversion_complete, NULL);
+      convert_one(path, format);
     }
     g_free(ext);
     g_free(path);
@@ -374,26 +373,43 @@ static gboolean on_drop(GtkDropTarget *target, const GValue *value, double x G_G
 
   GdkModifierType state = gtk_event_controller_get_current_event_state(GTK_EVENT_CONTROLLER(target));
 
-  char *default_fmt = default_output_format();
-  gboolean direct_convert = (state & GDK_CONTROL_MASK) == FALSE &&
-    (state & GDK_SHIFT_MASK) == FALSE && default_fmt && *default_fmt;
-
   g_print("Dropped %u file(s), modifiers=0x%x\n", g_list_length(dropped_files), state);
 
-  if (direct_convert) {
+  gboolean direct_convert = (state & GDK_CONTROL_MASK) == FALSE &&
+    (state & GDK_SHIFT_MASK) == FALSE;
+
+  if (direct_convert && dropped_files) {
     TangerineActionMode mode = mode_from_modifiers(state);
     if (mode == TANGERINE_ACTION_CONVERT) {
       g_application_hold(G_APPLICATION(app_instance));
       held_application = TRUE;
-      g_print("Auto-converting %u file(s) to %s\n", g_list_length(dropped_files), default_fmt);
-      char *action = g_strdup_printf("convert-%s", default_fmt);
-      execute_action(action);
-      g_free(action);
-      g_free(default_fmt);
+      apply_output_settings();
+      conversions_pending = 0;
+      conversions_ok = 0;
+      conversions_failed = 0;
+
+      gboolean any = FALSE;
+      for (GList *l = dropped_files; l; l = l->next) {
+        char *path = g_file_get_path(l->data);
+        if (!path) continue;
+        char *fmt = tangerine_conversion_engine_default_output_format(conversion_engine, path);
+        if (fmt && *fmt) {
+          convert_one(path, fmt);
+          any = TRUE;
+        }
+        g_free(fmt);
+        g_free(path);
+      }
+
+      g_print("Auto-converting %u file(s) with smart formats\n", conversions_pending);
+      if (!any) {
+        notify("Tangerine", "Nothing to convert");
+        show_toast("Nothing to convert");
+        release_if_held();
+      }
       return TRUE;
     }
   }
-  g_free(default_fmt);
 
   show_menu(mode_from_modifiers(state));
   return TRUE;

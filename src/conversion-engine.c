@@ -527,6 +527,70 @@ const char *tangerine_conversion_engine_find_pipeline(TangerineConversionEngine 
   return pipeline;
 }
 
+static gboolean is_image_mime(const char *mime) {
+  return g_str_has_prefix(mime, "image/");
+}
+
+static gboolean is_video_mime(const char *mime) {
+  return g_str_has_prefix(mime, "video/");
+}
+
+static gboolean is_audio_mime(const char *mime) {
+  return g_str_has_prefix(mime, "audio/");
+}
+
+static const char *extension_for_mime(const char *mime) {
+  if (g_strcmp0(mime, "image/jpeg") == 0) return "jpg";
+  if (g_strcmp0(mime, "image/png") == 0) return "png";
+  if (g_strcmp0(mime, "image/gif") == 0) return "gif";
+  if (g_strcmp0(mime, "image/bmp") == 0) return "bmp";
+  if (g_strcmp0(mime, "image/tiff") == 0) return "tiff";
+  if (g_strcmp0(mime, "image/svg+xml") == 0) return "svg";
+  if (g_strcmp0(mime, "image/webp") == 0) return "webp";
+  if (g_strcmp0(mime, "video/mp4") == 0) return "mp4";
+  if (g_strcmp0(mime, "video/quicktime") == 0) return "mov";
+  if (g_strcmp0(mime, "video/x-matroska") == 0) return "mkv";
+  if (g_strcmp0(mime, "video/webm") == 0) return "webm";
+  if (g_strcmp0(mime, "video/x-msvideo") == 0) return "avi";
+  if (g_strcmp0(mime, "audio/mpeg") == 0) return "mp3";
+  if (g_strcmp0(mime, "audio/mp4") == 0) return "m4a";
+  if (g_strcmp0(mime, "audio/wav") == 0) return "wav";
+  if (g_strcmp0(mime, "audio/flac") == 0) return "flac";
+  if (g_strcmp0(mime, "audio/ogg") == 0) return "ogg";
+  if (g_strcmp0(mime, "audio/opus") == 0) return "opus";
+  if (g_strcmp0(mime, "audio/aiff") == 0) return "aiff";
+  return NULL;
+}
+
+char *tangerine_conversion_engine_default_output_format(TangerineConversionEngine *self G_GNUC_UNUSED,
+  const char *input_path) {
+
+  const char *in_ext = strrchr(input_path, '.');
+  const char *mime = mime_for_extension(in_ext ? in_ext + 1 : NULL);
+
+  if (g_str_has_prefix(mime, "image/heic") || g_str_has_prefix(mime, "image/heif") ||
+      g_str_has_prefix(mime, "image/avif"))
+    return g_strdup("jpg");
+  if (g_str_has_prefix(mime, "image/webp"))
+    return g_strdup("png");
+  if (is_image_mime(mime)) {
+    const char *ext = extension_for_mime(mime);
+    return g_strdup(ext ? ext : mime + 6);
+  }
+  if (is_video_mime(mime))
+    return g_strdup("mp4");
+  if (is_audio_mime(mime))
+    return g_strdup("mp3");
+  if (g_str_has_prefix(mime, "application/pdf"))
+    return g_strdup("png");
+  if (g_str_has_prefix(mime, "application/zip"))
+    return g_strdup("tar");
+  if (g_str_has_prefix(mime, "application/x-tar"))
+    return g_strdup("zip");
+
+  return g_strdup(extension_for_mime(mime) ? extension_for_mime(mime) : mime);
+}
+
 void tangerine_conversion_engine_convert_to(TangerineConversionEngine *self,
   const char *input_path,
   const char *output_path,
