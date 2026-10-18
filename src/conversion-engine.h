@@ -34,6 +34,17 @@ void tangerine_conversion_engine_convert(TangerineConversionEngine *self,
   TangerineConversionProgressCallback progress_cb,
   TangerineConversionCompleteCallback complete_cb,
   gpointer user_data);
+void tangerine_conversion_engine_convert_to(TangerineConversionEngine *self,
+  const char *input_path,
+  const char *output_path,
+  const char *pipeline_name,
+  TangerineConversionProgressCallback progress_cb,
+  TangerineConversionCompleteCallback complete_cb,
+  gpointer user_data);
+const char *tangerine_conversion_engine_find_pipeline(TangerineConversionEngine *self,
+  const char *input_path, const char *output_format);
 void tangerine_conversion_engine_cancel(TangerineConversionEngine *self, const char *input_path);
+
+GList *tangerine_conversion_engine_missing_tools(void);
 
 G_END_DECLS

@@ -55,31 +55,24 @@ static void run_pipeline_image(ConversionJob *job) {
 
   if (g_strcmp0(pipeline, "heic-to-jpeg") == 0 || g_strcmp0(pipeline, "heic-to-png") == 0) {
     update_progress(job, 0.2, "Reading HEIC...");
-    G_GNUC_UNUSED const char *fmt = g_str_has_suffix(output, ".png") ? "png" : "jpg";
     cmd = g_strdup_printf("heif-convert -q 90 \"%s\" \"%s\"", input, output);
   }
   else if (g_strcmp0(pipeline, "avif-to-jpeg") == 0 || g_strcmp0(pipeline, "avif-to-png") == 0) {
     update_progress(job, 0.2, "Reading AVIF...");
     cmd = g_strdup_printf("avifdec \"%s\" \"%s\"", input, output);
   }
-  else if (g_strcmp0(pipeline, "jpeg-to-png") == 0) {
-    cmd = g_strdup_printf("vips copy \"%s\" \"%s\"", input, output);
-  }
   else if (g_strcmp0(pipeline, "jpeg-to-webp") == 0) {
-    cmd = g_strdup_printf("cwebp -q 85 \"%s\" -o \"%s\"", input, output);
+    cmd = g_strdup_printf("vips copy \"%s\" \"%s[Q=85]\"", input, output);
   }
   else if (g_strcmp0(pipeline, "png-to-jpeg") == 0) {
-    cmd = g_strdup_printf("vips copy \"%s\" \"%s\"[Q=90]", input, output);
+    cmd = g_strdup_printf("vips copy \"%s\" \"%s[Q=90]\"", input, output);
   }
   else if (g_strcmp0(pipeline, "png-to-webp") == 0) {
-    cmd = g_strdup_printf("cwebp -lossless \"%s\" -o \"%s\"", input, output);
-  }
-  else if (g_strcmp0(pipeline, "webp-to-png") == 0 || g_strcmp0(pipeline, "webp-to-jpeg") == 0) {
-    cmd = g_strdup_printf("dwebp \"%s\" -o \"%s\"", input, output);
+    cmd = g_strdup_printf("vips copy \"%s\" \"%s[Q=85]\"", input, output);
   }
   else if (g_strcmp0(pipeline, "compress-image") == 0) {
     update_progress(job, 0.2, "Compressing image...");
-    cmd = g_strdup_printf("vips copy \"%s\" \"%s\"[Q=75,strip]", input, output);
+    cmd = g_strdup_printf("vips copy \"%s\" \"%s[Q=75,strip]\"", input, output);
   }
   else if (g_strcmp0(pipeline, "crop-image") == 0) {
     update_progress(job, 0.2, "Cropping image...");
@@ -87,7 +80,7 @@ static void run_pipeline_image(ConversionJob *job) {
   }
   else if (g_strcmp0(pipeline, "strip-metadata") == 0) {
     update_progress(job, 0.2, "Stripping metadata...");
-    cmd = g_strdup_printf("exiftool -all= -overwrite_original \"%s\" -o \"%s\"", input, output);
+    cmd = g_strdup_printf("vips copy \"%s\" \"%s[strip]\"", input, output);
   }
   else {
     update_progress(job, 0.2, "Converting with vips...");
@@ -225,20 +218,21 @@ static void run_pipeline_pdf(ConversionJob *job) {
   else if (g_strcmp0(pipeline, "pdf-to-text") == 0) {
     cmd = g_strdup_printf("pdftotext \"%s\" \"%s\"", input, output);
   }
-  else if (g_strcmp0(pipeline, "pdf-to-md") == 0) {
-    cmd = g_strdup_printf("pandoc \"%s\" -o \"%s\"", input, output);
+  else if (g_strcmp0(pipeline, "pdf-to-md") == 0 || g_strcmp0(pipeline, "pdf-to-text") == 0) {
+    cmd = g_strdup_printf("pdftotext \"%s\" \"%s\"", input, output);
   }
   else if (g_strcmp0(pipeline, "docx-to-pdf") == 0 || g_strcmp0(pipeline, "odt-to-pdf") == 0) {
-    cmd = g_strdup_printf("libreoffice --headless --convert-to pdf \"%s\" --outdir \"%s\"", input, g_path_get_dirname(output));
+    cmd = g_strdup_printf("libreoffice --headless --convert-to pdf \"%s\" --outdir \"%s\"",
+      input, g_path_get_dirname(output));
   }
   else if (g_strcmp0(pipeline, "compress-pdf") == 0) {
     cmd = g_strdup_printf("gs -sDEVICE=pdfwrite -dCompatibilityLevel=1.4 -dPDFSETTINGS=/ebook -dNOPAUSE -dQUIET -dBATCH -sOutputFile=\"%s\" \"%s\"", output, input);
   }
   else if (g_strcmp0(pipeline, "split-pdf") == 0) {
-    cmd = g_strdup_printf("qpdf \"%s\" --split-pages \"%s\"", input, output);
+    cmd = g_strdup_printf("pdfseparate \"%s\" \"%s\"", input, output);
   }
   else if (g_strcmp0(pipeline, "merge-pdf") == 0) {
-    cmd = g_strdup_printf("qpdf --empty --pages \"%s\" -- \"%s\"", input, output);
+    cmd = g_strdup_printf("pdfunite \"%s\" \"%s\"", input, output);
   }
   else {
     cmd = g_strdup_printf("cp \"%s\" \"%s\"", input, output);
@@ -305,6 +299,49 @@ static void run_pipeline_archive(ConversionJob *job) {
   }
 }
 
+typedef enum {
+  CATEGORY_UNKNOWN,
+  CATEGORY_IMAGE,
+  CATEGORY_VIDEO,
+  CATEGORY_AUDIO,
+  CATEGORY_PDF,
+  CATEGORY_ARCHIVE,
+} FileCategory;
+
+static FileCategory category_from_extension(const char *ext) {
+  if (!ext) return CATEGORY_UNKNOWN;
+  if (g_ascii_strcasecmp(ext, "heic") == 0 || g_ascii_strcasecmp(ext, "heif") == 0 ||
+      g_ascii_strcasecmp(ext, "avif") == 0 || g_ascii_strcasecmp(ext, "jpg") == 0 ||
+      g_ascii_strcasecmp(ext, "jpeg") == 0 || g_ascii_strcasecmp(ext, "png") == 0 ||
+      g_ascii_strcasecmp(ext, "webp") == 0 || g_ascii_strcasecmp(ext, "tiff") == 0 ||
+      g_ascii_strcasecmp(ext, "tif") == 0 || g_ascii_strcasecmp(ext, "bmp") == 0 ||
+      g_ascii_strcasecmp(ext, "gif") == 0 || g_ascii_strcasecmp(ext, "svg") == 0)
+    return CATEGORY_IMAGE;
+  if (g_ascii_strcasecmp(ext, "mp4") == 0 || g_ascii_strcasecmp(ext, "mov") == 0 ||
+      g_ascii_strcasecmp(ext, "mkv") == 0 || g_ascii_strcasecmp(ext, "webm") == 0 ||
+      g_ascii_strcasecmp(ext, "avi") == 0)
+    return CATEGORY_VIDEO;
+  if (g_ascii_strcasecmp(ext, "mp3") == 0 || g_ascii_strcasecmp(ext, "m4a") == 0 ||
+      g_ascii_strcasecmp(ext, "wav") == 0 || g_ascii_strcasecmp(ext, "flac") == 0 ||
+      g_ascii_strcasecmp(ext, "ogg") == 0 || g_ascii_strcasecmp(ext, "opus") == 0 ||
+      g_ascii_strcasecmp(ext, "aiff") == 0)
+    return CATEGORY_AUDIO;
+  if (g_ascii_strcasecmp(ext, "pdf") == 0) return CATEGORY_PDF;
+  if (g_ascii_strcasecmp(ext, "zip") == 0 || g_ascii_strcasecmp(ext, "tar") == 0 ||
+      g_ascii_strcasecmp(ext, "gz") == 0)
+    return CATEGORY_ARCHIVE;
+  return CATEGORY_UNKNOWN;
+}
+
+static const char *file_extension(const char *path) {
+  const char *dot = strrchr(path, '.');
+  return dot ? dot + 1 : NULL;
+}
+
+static FileCategory category_from_path(const char *path) {
+  return category_from_extension(file_extension(path));
+}
+
 static void process_job(ConversionJob *job) {
   if (g_cancellable_is_cancelled(job->cancellable)) {
     job->complete_cb(TANGERINE_CONVERSION_ERROR_CANCELLED, NULL, "Cancelled", job->user_data);
@@ -318,27 +355,40 @@ static void process_job(ConversionJob *job) {
       g_str_has_prefix(pipeline, "webp") || g_strcmp0(pipeline, "compress-image") == 0 ||
       g_strcmp0(pipeline, "crop-image") == 0 || g_strcmp0(pipeline, "strip-metadata") == 0) {
     run_pipeline_image(job);
+    return;
   }
-  else if (g_str_has_prefix(pipeline, "video") || g_strcmp0(pipeline, "trim-video") == 0 ||
-           g_strcmp0(pipeline, "compress-video") == 0) {
+  if (g_str_has_prefix(pipeline, "video") || g_strcmp0(pipeline, "trim-video") == 0 ||
+      g_strcmp0(pipeline, "compress-video") == 0) {
     run_pipeline_video(job);
+    return;
   }
-  else if (g_str_has_prefix(pipeline, "mp3") || g_str_has_prefix(pipeline, "flac") ||
-           g_str_has_prefix(pipeline, "wav") || g_str_has_prefix(pipeline, "opus") ||
-           g_strcmp0(pipeline, "compress-audio") == 0) {
+  if (g_str_has_prefix(pipeline, "mp3") || g_str_has_prefix(pipeline, "flac") ||
+      g_str_has_prefix(pipeline, "wav") || g_str_has_prefix(pipeline, "opus") ||
+      g_strcmp0(pipeline, "compress-audio") == 0) {
     run_pipeline_audio(job);
+    return;
   }
-  else if (g_str_has_prefix(pipeline, "pdf") || g_strcmp0(pipeline, "docx-to-pdf") == 0 ||
-           g_strcmp0(pipeline, "odt-to-pdf") == 0 || g_strcmp0(pipeline, "compress-pdf") == 0 ||
-           g_strcmp0(pipeline, "split-pdf") == 0 || g_strcmp0(pipeline, "merge-pdf") == 0) {
+  if (g_str_has_prefix(pipeline, "pdf") || g_strcmp0(pipeline, "docx-to-pdf") == 0 ||
+      g_strcmp0(pipeline, "odt-to-pdf") == 0 || g_strcmp0(pipeline, "compress-pdf") == 0 ||
+      g_strcmp0(pipeline, "split-pdf") == 0 || g_strcmp0(pipeline, "merge-pdf") == 0) {
     run_pipeline_pdf(job);
+    return;
   }
-  else if (g_str_has_prefix(pipeline, "zip") || g_str_has_prefix(pipeline, "tar") ||
-           g_strcmp0(pipeline, "create-zip") == 0 || g_strcmp0(pipeline, "extract-zip") == 0) {
+  if (g_str_has_prefix(pipeline, "zip") || g_str_has_prefix(pipeline, "tar") ||
+      g_strcmp0(pipeline, "create-zip") == 0 || g_strcmp0(pipeline, "extract-zip") == 0) {
     run_pipeline_archive(job);
+    return;
   }
-  else {
-    job->complete_cb(TANGERINE_CONVERSION_ERROR_PIPELINE, NULL, "Unknown pipeline", job->user_data);
+
+  switch (category_from_path(job->input_path)) {
+    case CATEGORY_IMAGE: run_pipeline_image(job); break;
+    case CATEGORY_VIDEO: run_pipeline_video(job); break;
+    case CATEGORY_AUDIO: run_pipeline_audio(job); break;
+    case CATEGORY_PDF:   run_pipeline_pdf(job);   break;
+    case CATEGORY_ARCHIVE: run_pipeline_archive(job); break;
+    default:
+      job->complete_cb(TANGERINE_CONVERSION_ERROR_PIPELINE, NULL, "Unsupported file type", job->user_data);
+      break;
   }
 }
 
@@ -407,47 +457,68 @@ void tangerine_conversion_engine_load_formats(TangerineConversionEngine *self, c
   load_yaml_formats(self, yaml_path);
 }
 
-void tangerine_conversion_engine_convert(TangerineConversionEngine *self,
+static const char *mime_for_extension(const char *ext) {
+  if (!ext) return "application/octet-stream";
+  if (g_ascii_strcasecmp(ext, "heic") == 0 || g_ascii_strcasecmp(ext, "heif") == 0) return "image/heic";
+  if (g_ascii_strcasecmp(ext, "avif") == 0) return "image/avif";
+  if (g_ascii_strcasecmp(ext, "jpg") == 0 || g_ascii_strcasecmp(ext, "jpeg") == 0) return "image/jpeg";
+  if (g_ascii_strcasecmp(ext, "png") == 0) return "image/png";
+  if (g_ascii_strcasecmp(ext, "webp") == 0) return "image/webp";
+  if (g_ascii_strcasecmp(ext, "tiff") == 0 || g_ascii_strcasecmp(ext, "tif") == 0) return "image/tiff";
+  if (g_ascii_strcasecmp(ext, "bmp") == 0) return "image/bmp";
+  if (g_ascii_strcasecmp(ext, "gif") == 0) return "image/gif";
+  if (g_ascii_strcasecmp(ext, "svg") == 0) return "image/svg+xml";
+  if (g_ascii_strcasecmp(ext, "mp4") == 0) return "video/mp4";
+  if (g_ascii_strcasecmp(ext, "mov") == 0) return "video/quicktime";
+  if (g_ascii_strcasecmp(ext, "mkv") == 0) return "video/x-matroska";
+  if (g_ascii_strcasecmp(ext, "webm") == 0) return "video/webm";
+  if (g_ascii_strcasecmp(ext, "avi") == 0) return "video/x-msvideo";
+  if (g_ascii_strcasecmp(ext, "mp3") == 0) return "audio/mpeg";
+  if (g_ascii_strcasecmp(ext, "m4a") == 0) return "audio/mp4";
+  if (g_ascii_strcasecmp(ext, "wav") == 0) return "audio/wav";
+  if (g_ascii_strcasecmp(ext, "flac") == 0) return "audio/flac";
+  if (g_ascii_strcasecmp(ext, "ogg") == 0) return "audio/ogg";
+  if (g_ascii_strcasecmp(ext, "opus") == 0) return "audio/opus";
+  if (g_ascii_strcasecmp(ext, "aiff") == 0) return "audio/aiff";
+  if (g_ascii_strcasecmp(ext, "pdf") == 0) return "application/pdf";
+  if (g_ascii_strcasecmp(ext, "docx") == 0) return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+  if (g_ascii_strcasecmp(ext, "odt") == 0) return "application/vnd.oasis.opendocument.text";
+  if (g_ascii_strcasecmp(ext, "txt") == 0) return "text/plain";
+  if (g_ascii_strcasecmp(ext, "md") == 0) return "text/markdown";
+  if (g_ascii_strcasecmp(ext, "zip") == 0) return "application/zip";
+  if (g_ascii_strcasecmp(ext, "tar") == 0) return "application/x-tar";
+  if (g_ascii_strcasecmp(ext, "gz") == 0) return "application/gzip";
+  return "application/octet-stream";
+}
+
+const char *tangerine_conversion_engine_find_pipeline(TangerineConversionEngine *self,
+  const char *input_path, const char *output_format) {
+
+  const char *in_ext = strrchr(input_path, '.');
+  if (in_ext) in_ext++;
+
+  const char *in_mime = mime_for_extension(in_ext);
+  const char *out_mime = mime_for_extension(output_format);
+
+  char *key = g_strdup_printf("%s->%s", in_mime, out_mime);
+  const char *pipeline = g_hash_table_lookup(self->format_map, key);
+  g_free(key);
+
+  return pipeline;
+}
+
+void tangerine_conversion_engine_convert_to(TangerineConversionEngine *self,
   const char *input_path,
-  const char *output_format,
+  const char *output_path,
+  const char *pipeline_name,
   TangerineConversionProgressCallback progress_cb,
   TangerineConversionCompleteCallback complete_cb,
   gpointer user_data) {
 
-  char *input_mime = NULL;
-  const char *ext = strrchr(input_path, '.');
-  if (ext) {
-    ext++;
-    if (g_strcmp0(ext, "heic") == 0) input_mime = "image/heic";
-    else if (g_strcmp0(ext, "avif") == 0) input_mime = "image/avif";
-    else if (g_strcmp0(ext, "jpg") == 0 || g_strcmp0(ext, "jpeg") == 0) input_mime = "image/jpeg";
-    else if (g_strcmp0(ext, "png") == 0) input_mime = "image/png";
-    else if (g_strcmp0(ext, "webp") == 0) input_mime = "image/webp";
-    else if (g_strcmp0(ext, "mp4") == 0) input_mime = "video/mp4";
-    else if (g_strcmp0(ext, "mkv") == 0) input_mime = "video/x-matroska";
-    else if (g_strcmp0(ext, "mp3") == 0) input_mime = "audio/mpeg";
-    else if (g_strcmp0(ext, "flac") == 0) input_mime = "audio/flac";
-    else if (g_strcmp0(ext, "wav") == 0) input_mime = "audio/wav";
-    else if (g_strcmp0(ext, "opus") == 0) input_mime = "audio/opus";
-    else if (g_strcmp0(ext, "pdf") == 0) input_mime = "application/pdf";
-    else if (g_strcmp0(ext, "docx") == 0) input_mime = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
-    else if (g_strcmp0(ext, "odt") == 0) input_mime = "application/vnd.oasis.opendocument.text";
-    else if (g_strcmp0(ext, "zip") == 0) input_mime = "application/zip";
-    else if (g_strcmp0(ext, "tar") == 0) input_mime = "application/x-tar";
-  }
-
-  char *key = g_strdup_printf("%s->%s", input_mime ? input_mime : "unknown", output_format);
-  const char *pipeline = g_hash_table_lookup(self->format_map, key);
-  g_free(key);
-
-  if (!pipeline) {
-    pipeline = "default";
-  }
-
   ConversionJob *job = g_new0(ConversionJob, 1);
   job->input_path = g_strdup(input_path);
-  job->output_path = g_strdup_printf("%s_converted.%s", input_path, output_format);
-  job->pipeline_name = g_strdup(pipeline);
+  job->output_path = g_strdup(output_path);
+  job->pipeline_name = g_strdup(pipeline_name ? pipeline_name : "default");
   job->progress_cb = progress_cb;
   job->complete_cb = complete_cb;
   job->user_data = user_data;
@@ -456,6 +527,51 @@ void tangerine_conversion_engine_convert(TangerineConversionEngine *self,
   g_thread_pool_push(self->thread_pool, job, NULL);
 }
 
+void tangerine_conversion_engine_convert(TangerineConversionEngine *self,
+  const char *input_path,
+  const char *output_format,
+  TangerineConversionProgressCallback progress_cb,
+  TangerineConversionCompleteCallback complete_cb,
+  gpointer user_data) {
+
+  const char *pipeline = tangerine_conversion_engine_find_pipeline(self, input_path, output_format);
+  if (!pipeline) pipeline = "default";
+
+  char *dir = g_path_get_dirname(input_path);
+  char *base = g_path_get_basename(input_path);
+  char *dot = strrchr(base, '.');
+  if (dot) *dot = '\0';
+  char *output_path = g_strdup_printf("%s/%s_converted.%s", dir, base, output_format);
+
+  g_free(dir);
+  g_free(base);
+
+  tangerine_conversion_engine_convert_to(self, input_path, output_path, pipeline,
+    progress_cb, complete_cb, user_data);
+
+  g_free(output_path);
+}
+
 void tangerine_conversion_engine_cancel(TangerineConversionEngine *self, const char *input_path G_GNUC_UNUSED) {
   g_cancellable_cancel(self->global_cancellable);
+}
+
+GList *tangerine_conversion_engine_missing_tools(void) {
+  static const char *tools[] = {
+    "vips", "ffmpeg", "heif-convert", "avifdec",
+    "pdftoppm", "pdftotext", "pdfseparate", "pdfunite",
+    "gs", "libreoffice", "unzip", "tar", "gzip",
+    NULL
+  };
+
+  GList *missing = NULL;
+  for (int i = 0; tools[i]; i++) {
+    char *path = g_find_program_in_path(tools[i]);
+    if (path) {
+      g_free(path);
+    } else {
+      missing = g_list_prepend(missing, (gpointer)tools[i]);
+    }
+  }
+  return g_list_reverse(missing);
 }

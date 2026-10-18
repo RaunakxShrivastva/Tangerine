@@ -44,22 +44,39 @@ if not m_lib.found()
   m_lib = c_compiler.find_library('m', dirs: ['/lib', '/lib64'], required: false)
 endif
 
-# Executable
-executable('tangerine',
+# Shared application library
+tangerine_lib = static_library('tangerine-lib',
   sources: [
-    'src/main.c',
     'src/radial-menu.c',
     'src/drag-monitor.c',
     'src/conversion-engine.c',
+    'src/file-operations.c',
   ],
   dependencies: deps + [m_lib],
   include_directories: inc,
+  c_args: ['-Wno-deprecated-declarations']
+)
+
+# Executable
+executable('tangerine',
+  sources: ['src/main.c'],
+  dependencies: deps + [m_lib],
+  include_directories: inc,
+  link_with: tangerine_lib,
   install: true,
   c_args: ['-Wno-deprecated-declarations']
 )
 
-# Tests (disabled for now - need library linking)
-# test('radial-menu', executable('test-radial-menu', 'src/tests/test-radial-menu.c', dependencies: deps, include_directories: inc, c_args: ['-Wno-deprecated-declarations'], link_with: tangerine_lib))
+# Tests
+gdk_pixbuf_dep = dependency('gdk-pixbuf-2.0')
+conversion_test = executable('test-conversion',
+  sources: ['src/tests/test-conversion.c'],
+  dependencies: deps + [m_lib, gdk_pixbuf_dep],
+  include_directories: inc,
+  link_with: tangerine_lib,
+  c_args: ['-Wno-deprecated-declarations']
+)
+test('conversion', conversion_test, timeout: 60)
 
 # Install data
 install_data('data/com.github.yourname.Tangerine.gschema.xml',
