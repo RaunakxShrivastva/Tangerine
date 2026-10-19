@@ -38,6 +38,12 @@ static gboolean held_application = FALSE;
 static gboolean auto_open_folder = FALSE;
 static char *last_output_path = NULL;
 
+static guint hotkey_keyval = GDK_KEY_v;
+static GdkModifierType hotkey_modifiers = GDK_SUPER_MASK | GDK_SHIFT_MASK;
+static GtkEventController *hotkey_controller = NULL;
+static gulong hotkey_handler_id = 0;
+static guint recent_limit = 10;
+
 static char *cli_action = NULL;
 static char *cli_convert_to = NULL;
 static gboolean cli_preferences = FALSE;
@@ -218,7 +224,7 @@ static void add_recent_conversion(const char *input_path, const char *output_pat
 
   list = g_list_prepend(list, entry);
 
-  while (g_list_length(list) > 10) {
+  while (g_list_length(list) > recent_limit) {
     GList *last = g_list_last(list);
     list = g_list_delete_link(list, last);
     g_free(last->data);
@@ -274,6 +280,15 @@ static void load_modifier_settings(void) {
       conversion_engine, g_settings_get_string(settings, "output-pattern"));
   }
   auto_open_folder = g_settings_get_boolean(settings, "auto-open-folder");
+
+  recent_limit = g_settings_get_uint(settings, "recent-limit");
+
+  guint keyval = 0;
+  GdkModifierType modifiers = 0;
+  if (gtk_accelerator_parse(g_settings_get_string(settings, "hotkey"), &keyval, &modifiers)) {
+    hotkey_keyval = keyval;
+    hotkey_modifiers = modifiers;
+  }
 }
 
 static void on_settings_changed(GSettings *settings G_GNUC_UNUSED, const char *key, gpointer data G_GNUC_UNUSED) {
@@ -286,7 +301,9 @@ static void on_settings_changed(GSettings *settings G_GNUC_UNUSED, const char *k
       g_str_equal(key, "output-directory") ||
       g_str_equal(key, "default-output-format") ||
       g_str_equal(key, "output-pattern") ||
-      g_str_equal(key, "auto-open-folder")) {
+      g_str_equal(key, "auto-open-folder") ||
+      g_str_equal(key, "hotkey") ||
+      g_str_equal(key, "recent-limit")) {
     load_modifier_settings();
   }
 }
@@ -774,12 +791,33 @@ static void on_drag_action(TangerineActionMode mode, GdkDrag *drag G_GNUC_UNUSED
   show_menu(mode);
 }
 
-static gboolean on_key_pressed(GtkEventControllerKey *self G_GNUC_UNUSED, guint keyval, guint keycode G_GNUC_UNUSED, GdkModifierType state, gpointer data G_GNUC_UNUSED) {
-  if (keyval == GDK_KEY_v && (state & GDK_SUPER_MASK) && (state & GDK_SHIFT_MASK)) {
+static gboolean on_hotkey_pressed(GtkEventControllerKey *self G_GNUC_UNUSED, guint keyval, guint keycode G_GNUC_UNUSED, GdkModifierType state, gpointer data G_GNUC_UNUSED) {
+  if (keyval == hotkey_keyval && (state & hotkey_modifiers) == hotkey_modifiers) {
     show_menu(TANGERINE_ACTION_CONVERT);
     return TRUE;
   }
   return FALSE;
+}
+
+static void reconnect_hotkey(GtkWidget *widget) {
+  if (hotkey_controller && hotkey_handler_id > 0)
+    g_signal_handler_disconnect(hotkey_controller, hotkey_handler_id);
+
+  const char *hk = g_settings_get_string(settings, "hotkey");
+  guint keyval = 0;
+  GdkModifierType modifiers = 0;
+  if (!gtk_accelerator_parse(hk, &keyval, &modifiers)) {
+    keyval = GDK_KEY_v;
+    modifiers = GDK_SUPER_MASK | GDK_SHIFT_MASK;
+  }
+  hotkey_keyval = keyval;
+  hotkey_modifiers = modifiers;
+
+  if (!hotkey_controller) {
+    hotkey_controller = gtk_event_controller_key_new();
+    gtk_widget_add_controller(widget, hotkey_controller);
+  }
+  hotkey_handler_id = g_signal_connect(hotkey_controller, "key-pressed", G_CALLBACK(on_hotkey_pressed), NULL);
 }
 
 static void ensure_ui(GtkApplication *app, gboolean present) {
@@ -873,9 +911,7 @@ static void ensure_ui(GtkApplication *app, gboolean present) {
   drag_monitor = tangerine_drag_monitor_new(display);
   tangerine_drag_monitor_set_callback(drag_monitor, on_drag_action, NULL);
 
-  GtkEventController *keys = gtk_event_controller_key_new();
-  g_signal_connect(keys, "key-pressed", G_CALLBACK(on_key_pressed), NULL);
-  gtk_widget_add_controller(window, keys);
+  reconnect_hotkey(window);
 
   if (present) gtk_window_present(GTK_WINDOW(window));
 }

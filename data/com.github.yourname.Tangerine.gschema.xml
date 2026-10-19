@@ -51,6 +51,16 @@
       <summary>Recent conversions</summary>
       <description>List of "input|output" entries for the most recent conversions</description>
     </key>
+    <key name="recent-limit" type="u">
+      <default>10</default>
+      <summary>Maximum recent conversions to keep</summary>
+      <description>Number of recent conversion entries to retain</description>
+    </key>
+    <key name="hotkey" type="s">
+      <default>"&lt;Super&gt;&lt;Shift&gt;v"</default>
+      <summary>Keyboard shortcut to open conversion menu</summary>
+      <description>GTK accelerator string, e.g. &lt;Super&gt;&lt;Shift&gt;v</description>
+    </key>
     <key name="show-notifications" type="b">
       <default>true</default>
       <summary>Show completion notifications</summary>

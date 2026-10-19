@@ -41,6 +41,10 @@ Drag files onto the window. Hold a modifier to switch the radial menu:
   (convert / tools / file ops) is set via GSettings keys
   `modifier-convert`, `modifier-tools`, `modifier-fileops` (default: shift /
   super / ctrl).
+- **Configurable hotkey** — `Super+Shift+V` (default) opens the conversion
+  menu; change it via the `hotkey` GSettings key (GTK accelerator string).
+- **Recent conversions limit** — `recent-limit` GSettings key controls how
+  many recent conversions are kept (default 10).
 - **Per-category quality presets** — set image/video/audio quality
   (low / medium / high / lossless) in Preferences; applied to vips/ffmpeg
   commands at conversion time.
