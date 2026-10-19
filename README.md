@@ -44,6 +44,9 @@ Drag files onto the window. Hold a modifier to switch the radial menu:
 - **Per-category quality presets** — set image/video/audio quality
   (low / medium / high / lossless) in Preferences; applied to vips/ffmpeg
   commands at conversion time.
+- **Output filename pattern** — configurable `{name}_converted.{format}`
+  pattern with `{name}`, `{ext}`, `{format}` tokens (GSettings key
+  `output-pattern`).
 - **About dialog** — version, license, and project links from Preferences.
 
 ### Command line

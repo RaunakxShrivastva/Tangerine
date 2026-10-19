@@ -201,6 +201,8 @@ static void load_modifier_settings(void) {
       conversion_engine, g_settings_get_string(settings, "video-quality"));
     tangerine_conversion_engine_set_audio_quality(
       conversion_engine, g_settings_get_string(settings, "audio-quality"));
+    tangerine_conversion_engine_set_output_pattern(
+      conversion_engine, g_settings_get_string(settings, "output-pattern"));
   }
 }
 
@@ -212,7 +214,8 @@ static void on_settings_changed(GSettings *settings G_GNUC_UNUSED, const char *k
       g_str_equal(key, "show-notifications") ||
       g_str_equal(key, "output-beside-source") ||
       g_str_equal(key, "output-directory") ||
-      g_str_equal(key, "default-output-format")) {
+      g_str_equal(key, "default-output-format") ||
+      g_str_equal(key, "output-pattern")) {
     load_modifier_settings();
   }
 }

@@ -13,6 +13,7 @@ struct _TangerineConversionEngine {
   char *image_quality;
   char *video_quality;
   char *audio_quality;
+  char *output_pattern;
 };
 
 typedef struct {
@@ -418,6 +419,7 @@ static void tangerine_conversion_engine_finalize(GObject *object) {
   g_free(self->image_quality);
   g_free(self->video_quality);
   g_free(self->audio_quality);
+  g_free(self->output_pattern);
 
   G_OBJECT_CLASS(tangerine_conversion_engine_parent_class)->finalize(object);
 }
@@ -435,6 +437,7 @@ static void tangerine_conversion_engine_init(TangerineConversionEngine *self) {
   self->image_quality = g_strdup("high");
   self->video_quality = g_strdup("high");
   self->audio_quality = g_strdup("high");
+  self->output_pattern = g_strdup("{name}_converted.{format}");
 }
 
 TangerineConversionEngine *tangerine_conversion_engine_new(void) {
@@ -467,6 +470,11 @@ void tangerine_conversion_engine_set_video_quality(TangerineConversionEngine *se
 void tangerine_conversion_engine_set_audio_quality(TangerineConversionEngine *self, const char *q) {
   g_free(self->audio_quality);
   self->audio_quality = g_strdup(q ? q : "high");
+}
+
+void tangerine_conversion_engine_set_output_pattern(TangerineConversionEngine *self, const char *pattern) {
+  g_free(self->output_pattern);
+  self->output_pattern = (pattern && *pattern) ? g_strdup(pattern) : g_strdup("{name}_converted.{format}");
 }
 
 const char *tangerine_conversion_engine_quality_value(TangerineConversionEngine *self,
@@ -638,6 +646,40 @@ char *tangerine_conversion_engine_default_output_format(TangerineConversionEngin
   return g_strdup(extension_for_mime(mime) ? extension_for_mime(mime) : mime);
 }
 
+char *tangerine_conversion_engine_substitute_pattern(TangerineConversionEngine *self G_GNUC_UNUSED,
+  const char *pattern, const char *name, const char *ext, const char *format) {
+  if (!pattern || !*pattern) pattern = "{name}_converted.{format}";
+
+  GString *out = g_string_sized_new(64);
+  const char *p = pattern;
+  while (*p) {
+    if (*p == '{') {
+      const char *start = p + 1;
+      if (g_str_has_prefix(start, "name}")) {
+        g_string_append(out, name ? name : "");
+        p += 6;
+      }
+      else if (g_str_has_prefix(start, "ext}")) {
+        g_string_append(out, ext ? ext : "");
+        p += 5;
+      }
+      else if (g_str_has_prefix(start, "format}")) {
+        g_string_append(out, format ? format : "");
+        p += 8;
+      }
+      else {
+        g_string_append_c(out, *p);
+        p++;
+      }
+    }
+    else {
+      g_string_append_c(out, *p);
+      p++;
+    }
+  }
+  return g_string_free(out, FALSE);
+}
+
 void tangerine_conversion_engine_convert_to(TangerineConversionEngine *self,
   const char *input_path,
   const char *output_path,
@@ -672,23 +714,33 @@ void tangerine_conversion_engine_convert(TangerineConversionEngine *self,
   char *dir = self->output_dir ? g_strdup(self->output_dir) : g_path_get_dirname(input_path);
   char *base = g_path_get_basename(input_path);
   char *dot = strrchr(base, '.');
+  char *src_ext = dot ? g_strdup(dot + 1) : g_strdup("");
   if (dot) *dot = '\0';
-  char *ext = g_strdup(output_format);
+  char *pattern = g_strdup(self->output_pattern ? self->output_pattern : "{name}_converted.{ext}");
+  char *filename = tangerine_conversion_engine_substitute_pattern(self, pattern, base, src_ext, output_format);
   char *output_path = NULL;
   int counter = 0;
   while (TRUE) {
     g_free(output_path);
     if (counter == 0)
-      output_path = g_strdup_printf("%s/%s_converted.%s", dir, base, ext);
-    else
-      output_path = g_strdup_printf("%s/%s_converted_%d.%s", dir, base, counter, ext);
+      output_path = g_strdup_printf("%s/%s", dir, filename);
+    else {
+      char *name_only = g_strdup(filename);
+      char *fext = strrchr(name_only, '.');
+      if (fext) *fext = '\0';
+      output_path = g_strdup_printf("%s/%s_%d.%s", dir, name_only, counter,
+        fext ? fext + 1 : output_format);
+      g_free(name_only);
+    }
     if (!g_file_test(output_path, G_FILE_TEST_EXISTS)) break;
     counter++;
   }
 
   g_free(dir);
   g_free(base);
-  g_free(ext);
+  g_free(src_ext);
+  g_free(pattern);
+  g_free(filename);
 
   tangerine_conversion_engine_convert_to(self, input_path, output_path, pipeline,
     progress_cb, complete_cb, user_data);

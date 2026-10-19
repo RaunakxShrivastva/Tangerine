@@ -32,8 +32,11 @@ void tangerine_conversion_engine_set_output_dir(TangerineConversionEngine *self,
 void tangerine_conversion_engine_set_image_quality(TangerineConversionEngine *self, const char *q);
 void tangerine_conversion_engine_set_video_quality(TangerineConversionEngine *self, const char *q);
 void tangerine_conversion_engine_set_audio_quality(TangerineConversionEngine *self, const char *q);
+void tangerine_conversion_engine_set_output_pattern(TangerineConversionEngine *self, const char *pattern);
 const char *tangerine_conversion_engine_quality_value(TangerineConversionEngine *self,
   const char *category, const char *low, const char *medium, const char *high, const char *lossless);
+char *tangerine_conversion_engine_substitute_pattern(TangerineConversionEngine *self,
+  const char *pattern, const char *name, const char *ext, const char *format);
 void tangerine_conversion_engine_convert(TangerineConversionEngine *self,
   const char *input_path,
   const char *output_format,

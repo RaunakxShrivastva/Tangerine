@@ -157,6 +157,26 @@ int main(void) {
   }
   g_object_unref(e2);
 
+  g_print("[test] output pattern substitution\n");
+  TangerineConversionEngine *e3 = tangerine_conversion_engine_new();
+  static const struct { const char *pattern; const char *name; const char *ext; const char *format; const char *expected; } pcase[] = {
+    { "{name}_converted.{ext}", "photo", "png", "jpg", "photo_converted.png" },
+    { "{name}-{format}.{ext}", "photo", "png", "jpg", "photo-jpg.png" },
+    { "{format}/{name}.{ext}", "photo", "png", "jpg", "jpg/photo.png" },
+    { "{name}.{format}", "photo", "png", "jpg", "photo.jpg" },
+    { "{name}", "photo", "png", "jpg", "photo" },
+    { NULL, "photo", "png", "jpg", "photo_converted.jpg" },
+    { "", "photo", "png", "jpg", "photo_converted.jpg" },
+  };
+  for (guint i = 0; i < G_N_ELEMENTS(pcase); i++) {
+    char *got = tangerine_conversion_engine_substitute_pattern(e3, pcase[i].pattern, pcase[i].name, pcase[i].ext, pcase[i].format);
+    gboolean ok = got && g_strcmp0(got, pcase[i].expected) == 0;
+    if (!ok) g_print("  FAIL: pattern='%s' -> '%s' (expected '%s')\n", pcase[i].pattern, got ? got : "(null)", pcase[i].expected);
+    all_ok &= ok;
+    g_free(got);
+  }
+  g_object_unref(e3);
+
   g_free(png);
   g_rmdir(dir);
   g_free(dir);

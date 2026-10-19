@@ -21,6 +21,11 @@
       <summary>Default format when converting with no modifier</summary>
       <description>Format used when dropping files without holding a modifier</description>
     </key>
+    <key name="output-pattern" type="s">
+      <default>"{name}_converted.{format}"</default>
+      <summary>Output filename pattern</summary>
+      <description>Tokens: {name} = source basename without extension, {ext} = source extension, {format} = output format</description>
+    </key>
     <key name="image-quality" type="s">
       <default>"high"</default>
       <summary>Image conversion quality</summary>
