@@ -32,7 +32,9 @@ Drag files onto the window. Hold a modifier to switch the radial menu:
   heic/avif→jpg, webp→png, images keep their type, video→mp4, audio→mp3, pdf→png,
   zip→tar, tar→zip. Outputs are written `<name>_converted.<ext>` next to the source;
   if that exists, `_1`, `_2`… is appended.
-- Conversion progress and results show as in-app toasts and desktop notifications.
+- Conversion progress, per-file queue, error toasts, and desktop notifications.
+- **Recent conversions** — click the recent icon in the header bar to see recent
+  conversions and open their output folder. Persisted in GSettings.
 
 ### Command line
 ```bash

@@ -21,6 +21,11 @@
       <summary>Default format when converting with no modifier</summary>
       <description>Format used when dropping files without holding a modifier</description>
     </key>
+    <key name="recent-conversions" type="as">
+      <default>[]</default>
+      <summary>Recent conversions</summary>
+      <description>List of "input|output" entries for the most recent conversions</description>
+    </key>
     <key name="show-notifications" type="b">
       <default>true</default>
       <summary>Show completion notifications</summary>

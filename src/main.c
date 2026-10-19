@@ -20,6 +20,7 @@ static gboolean ui_ready = FALSE;
 static AdwToastOverlay *toast_overlay = NULL;
 static GtkWidget *status_label = NULL;
 static GtkWidget *spinner = NULL;
+static GtkPopover *recent_popover = NULL;
 
 static GList *dropped_files = NULL;
 static GtkListBox *file_queue = NULL;
@@ -121,6 +122,49 @@ static void notify(const char *title, const char *body) {
   g_object_unref(n);
 }
 
+static void add_recent_conversion(const char *input_path, const char *output_path) {
+  if (!settings || !input_path || !output_path) return;
+
+  char *entry = g_strdup_printf("%s|%s", input_path, output_path);
+
+  GStrv current = g_settings_get_strv(settings, "recent-conversions");
+  GList *list = NULL;
+  for (int i = 0; current[i]; i++)
+    list = g_list_append(list, g_strdup(current[i]));
+  g_strfreev(current);
+
+  GList *l = list;
+  while (l) {
+    if (g_strcmp0(l->data, entry) == 0) {
+      list = g_list_delete_link(list, l);
+      g_free(l->data);
+      break;
+    }
+    l = l->next;
+  }
+
+  list = g_list_prepend(list, entry);
+
+  while (g_list_length(list) > 10) {
+    GList *last = g_list_last(list);
+    list = g_list_delete_link(list, last);
+    g_free(last->data);
+  }
+
+  guint n = g_list_length(list);
+  char **arr = g_new(char *, n + 1);
+  guint i = 0;
+  for (l = list; l; l = l->next) {
+    arr[i++] = g_strdup(l->data);
+  }
+  arr[n] = NULL;
+
+  g_settings_set_strv(settings, "recent-conversions", (const char * const *)arr);
+
+  g_strfreev(arr);
+  g_list_free_full(list, g_free);
+}
+
 static void show_toast(const char *message) {
   if (!toast_overlay) return;
   AdwToast *toast = adw_toast_new(message);
@@ -198,10 +242,12 @@ static void conversion_maybe_finish(void) {
   release_if_held();
 }
 
-static void on_conversion_complete(TangerineConversionResult result, const char *output_path, const char *error, gpointer data G_GNUC_UNUSED) {
+static void on_conversion_complete(TangerineConversionResult result, const char *output_path, const char *error, gpointer user_data) {
+  const char *input_path = (const char *)user_data;
   if (result == TANGERINE_CONVERSION_SUCCESS) {
     conversions_ok++;
     g_print("Conversion complete: %s\n", output_path);
+    add_recent_conversion(input_path, output_path);
   } else {
     conversions_failed++;
     char *msg = g_strdup_printf("Conversion failed: %s", error ? error : "Unknown error");
@@ -209,6 +255,7 @@ static void on_conversion_complete(TangerineConversionResult result, const char 
     show_toast(msg);
     g_free(msg);
   }
+  g_free((gpointer)input_path);
 
   if (conversions_pending > 0) conversions_pending--;
   conversion_maybe_finish();
@@ -219,6 +266,122 @@ static void on_file_op_done(gboolean success, const char *message, gpointer user
   notify("Tangerine", message);
   show_toast(message);
   release_if_held();
+}
+
+static void open_output_folder(const char *output_path) {
+  GFile *f = g_file_new_for_path(output_path);
+  GFile *parent = g_file_get_parent(f);
+  char *uri = g_file_get_uri(parent);
+  GError *error = NULL;
+  if (!g_app_info_launch_default_for_uri(uri, NULL, &error)) {
+    g_warning("open folder failed: %s", error->message);
+    g_error_free(error);
+    notify("Tangerine", "Failed to open output folder");
+    show_toast("Failed to open output folder");
+  }
+  g_free(uri);
+  g_object_unref(parent);
+  g_object_unref(f);
+}
+
+static void on_recent_row_activated(GtkButton *button G_GNUC_UNUSED, gpointer data) {
+  GtkWidget *row = GTK_WIDGET(data);
+  GFile *f = g_object_get_data(G_OBJECT(row), "tangerine-recent-output");
+  if (f) {
+    char *path = g_file_get_path(f);
+    if (path) {
+      open_output_folder(path);
+      g_free(path);
+    }
+    g_object_unref(f);
+  }
+  if (recent_popover) gtk_popover_popdown(recent_popover);
+}
+
+static void rebuild_recent_popover(void) {
+  if (!settings) return;
+  gtk_list_box_remove_all(GTK_LIST_BOX(gtk_popover_get_child(recent_popover)));
+
+  GStrv recent = g_settings_get_strv(settings, "recent-conversions");
+  if (!recent || !recent[0]) {
+    g_strfreev(recent);
+    GtkWidget *empty = gtk_label_new("No recent conversions");
+    gtk_widget_set_hexpand(empty, TRUE);
+    gtk_widget_set_vexpand(empty, TRUE);
+    gtk_widget_set_halign(empty, GTK_ALIGN_CENTER);
+    gtk_widget_set_valign(empty, GTK_ALIGN_CENTER);
+    gtk_list_box_append(GTK_LIST_BOX(gtk_popover_get_child(recent_popover)), empty);
+    return;
+  }
+
+  for (int i = 0; recent[i]; i++) {
+    char *pipe = strchr(recent[i], '|');
+    if (!pipe) continue;
+    *pipe = '\0';
+    const char *input = recent[i];
+    const char *output = pipe + 1;
+
+    GFile *in_f = g_file_new_for_path(input);
+    GFile *out_f = g_file_new_for_path(output);
+    char *in_name = g_file_get_basename(in_f);
+    char *out_name = g_file_get_basename(out_f);
+
+    GtkWidget *row = gtk_list_box_row_new();
+    GtkWidget *box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+    gtk_widget_set_margin_top(box, 6);
+    gtk_widget_set_margin_bottom(box, 6);
+    gtk_widget_set_margin_start(box, 8);
+    gtk_widget_set_margin_end(box, 8);
+
+    GtkWidget *lbl = gtk_label_new(NULL);
+    char *markup = g_strdup_printf("<b>%s</b> → <i>%s</i>", in_name, out_name);
+    gtk_label_set_markup(GTK_LABEL(lbl), markup);
+    g_free(markup);
+    gtk_label_set_xalign(GTK_LABEL(lbl), 0);
+    gtk_label_set_ellipsize(GTK_LABEL(lbl), PANGO_ELLIPSIZE_MIDDLE);
+    gtk_widget_set_hexpand(lbl, TRUE);
+    gtk_box_append(GTK_BOX(box), lbl);
+
+    GtkWidget *open_btn = gtk_button_new_from_icon_name("folder-open-symbolic");
+    gtk_button_set_has_frame(GTK_BUTTON(open_btn), FALSE);
+    gtk_widget_set_tooltip_text(open_btn, "Open output folder");
+    g_object_set_data_full(G_OBJECT(open_btn), "tangerine-recent-output", g_object_ref(out_f), g_object_unref);
+    g_signal_connect(open_btn, "clicked", G_CALLBACK(on_recent_row_activated), row);
+    gtk_box_append(GTK_BOX(box), open_btn);
+
+    gtk_list_box_row_set_child(GTK_LIST_BOX_ROW(row), box);
+    gtk_list_box_append(GTK_LIST_BOX(gtk_popover_get_child(recent_popover)), row);
+
+    g_object_unref(in_f);
+    g_object_unref(out_f);
+    g_free(in_name);
+    g_free(out_name);
+    *pipe = '|';
+  }
+  g_strfreev(recent);
+}
+
+static void on_recent_clicked(GtkButton *button G_GNUC_UNUSED, gpointer data G_GNUC_UNUSED) {
+  if (!recent_popover) {
+    GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+    gtk_widget_set_margin_top(box, 6);
+    gtk_widget_set_margin_bottom(box, 6);
+    gtk_widget_set_margin_start(box, 6);
+    gtk_widget_set_margin_end(box, 6);
+
+    GtkWidget *list = gtk_list_box_new();
+    gtk_list_box_set_selection_mode(GTK_LIST_BOX(list), GTK_SELECTION_NONE);
+    gtk_widget_set_hexpand(list, TRUE);
+    gtk_box_append(GTK_BOX(box), list);
+
+  recent_popover = GTK_POPOVER(gtk_popover_new());
+  gtk_popover_set_child(recent_popover, box);
+  gtk_popover_set_has_arrow(recent_popover, TRUE);
+}
+
+  rebuild_recent_popover();
+  gtk_widget_set_parent(GTK_WIDGET(recent_popover), GTK_WIDGET(button));
+  gtk_popover_popup(recent_popover);
 }
 
 static const char *output_format_for_action(const char *action_id) {
@@ -235,7 +398,7 @@ static void convert_one(const char *path, const char *format) {
   conversions_pending++;
   set_converting(TRUE);
   tangerine_conversion_engine_convert(conversion_engine, path, format,
-    on_conversion_progress, on_conversion_complete, NULL);
+    on_conversion_progress, on_conversion_complete, g_strdup(path));
 }
 
 static void execute_action(const char *action_id) {
@@ -445,7 +608,12 @@ static void ensure_ui(GtkApplication *app, gboolean present) {
   GtkWidget *prefs_button = gtk_button_new_from_icon_name("emblem-system-symbolic");
   gtk_widget_set_tooltip_text(prefs_button, "Preferences");
   g_signal_connect(prefs_button, "clicked", G_CALLBACK(on_preferences), app);
+
+  GtkWidget *recent_button = gtk_button_new_from_icon_name("document-open-recent-symbolic");
+  gtk_widget_set_tooltip_text(recent_button, "Recent conversions");
+  g_signal_connect(recent_button, "clicked", G_CALLBACK(on_recent_clicked), NULL);
   adw_header_bar_pack_end(header, prefs_button);
+  adw_header_bar_pack_end(header, recent_button);
   adw_toolbar_view_add_top_bar(view, GTK_WIDGET(header));
 
   GtkWidget *inner = gtk_box_new(GTK_ORIENTATION_VERTICAL, 12);
