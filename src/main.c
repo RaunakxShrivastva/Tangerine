@@ -25,13 +25,18 @@ static GtkWidget *status_label = NULL;
 static GtkWidget *spinner = NULL;
 static GtkPopover *recent_popover = NULL;
 static GtkWidget *cancel_button = NULL;
+static GtkWidget *progress_bar = NULL;
 
 static GList *dropped_files = NULL;
 static GtkListBox *file_queue = NULL;
+static guint total_files = 0;
+static guint completed_files = 0;
 static guint conversions_pending = 0;
 static guint conversions_ok = 0;
 static guint conversions_failed = 0;
 static gboolean held_application = FALSE;
+static gboolean auto_open_folder = FALSE;
+static char *last_output_path = NULL;
 
 static char *cli_action = NULL;
 static char *cli_convert_to = NULL;
@@ -73,7 +78,7 @@ static void rebuild_file_queue(void) {
 
     GtkWidget *status = gtk_label_new("queued");
     gtk_label_set_xalign(GTK_LABEL(status), 1);
-    gtk_widget_add_css_class(status, "dim-label");
+    gtk_widget_add_css_class(status, "queued");
     gtk_box_append(GTK_BOX(hbox), status);
     g_object_set_data_full(G_OBJECT(row), "tangerine-status-label", g_object_ref(status), g_object_unref);
 
@@ -81,6 +86,7 @@ static void rebuild_file_queue(void) {
     gtk_button_set_has_frame(GTK_BUTTON(remove), FALSE);
     gtk_widget_set_tooltip_text(remove, "Remove from queue");
     g_object_set_data_full(G_OBJECT(row), "tangerine-file", g_object_ref(f), g_object_unref);
+    g_object_set_data_full(G_OBJECT(remove), "tangerine-file", g_object_ref(f), g_object_unref);
     g_signal_connect(remove, "clicked", G_CALLBACK(on_remove_file), row);
     gtk_box_append(GTK_BOX(hbox), remove);
 
@@ -109,6 +115,69 @@ static void set_queue_status(const char *status) {
     GtkWidget *lbl = g_object_get_data(G_OBJECT(row), "tangerine-status-label");
     if (lbl) gtk_label_set_label(GTK_LABEL(lbl), status);
   }
+}
+
+static GtkListBoxRow *find_row_for_file(GFile *file) {
+  if (!file_queue || !file) return NULL;
+  guint i = 0;
+  while (TRUE) {
+    GtkListBoxRow *row = gtk_list_box_get_row_at_index(file_queue, i);
+    if (!row) break;
+    GFile *f = g_object_get_data(G_OBJECT(row), "tangerine-file");
+    if (f && g_file_equal(f, file)) return row;
+    i++;
+  }
+  return NULL;
+}
+
+static void set_file_row_status(GtkListBoxRow *row, const char *status) {
+  if (!row) return;
+  GtkWidget *child = gtk_list_box_row_get_child(row);
+  GtkWidget *hbox = gtk_widget_get_first_child(child);
+  if (!hbox) return;
+  GtkWidget *lbl = gtk_widget_get_last_child(hbox);
+  if (!lbl || !GTK_IS_LABEL(lbl)) return;
+
+  gtk_label_set_label(GTK_LABEL(lbl), status);
+  gtk_widget_remove_css_class(lbl, "queued");
+  gtk_widget_remove_css_class(lbl, "converting");
+  gtk_widget_remove_css_class(lbl, "done");
+  gtk_widget_remove_css_class(lbl, "failed");
+
+  if (g_str_equal(status, "queued")) {
+    gtk_widget_add_css_class(lbl, "queued");
+  } else if (g_str_equal(status, "converting")) {
+    gtk_widget_add_css_class(lbl, "converting");
+  } else if (g_str_equal(status, "done")) {
+    gtk_widget_add_css_class(lbl, "done");
+  } else if (g_str_equal(status, "failed")) {
+    gtk_widget_add_css_class(lbl, "failed");
+  }
+}
+
+static void set_file_status(GFile *file, const char *status) {
+  if (!file_queue || !file) return;
+  GtkListBoxRow *row = find_row_for_file(file);
+  if (row) set_file_row_status(row, status);
+}
+
+static void update_progress_bar(void) {
+  if (!progress_bar) return;
+  guint total = total_files > 0 ? total_files : 1;
+  double fraction = (double)completed_files / (double)total;
+  if (fraction > 1.0) fraction = 1.0;
+  gtk_progress_bar_set_fraction(GTK_PROGRESS_BAR(progress_bar), fraction);
+  char *text = g_strdup_printf("%u / %u", completed_files, total_files);
+  gtk_progress_bar_set_text(GTK_PROGRESS_BAR(progress_bar), text);
+  g_free(text);
+}
+
+static void reset_batch_tracking(void) {
+  total_files = 0;
+  completed_files = 0;
+  g_clear_pointer(&last_output_path, g_free);
+  update_progress_bar();
+  gtk_widget_set_visible(GTK_WIDGET(progress_bar), FALSE);
 }
 
 static void notify(const char *title, const char *body) {
@@ -204,6 +273,7 @@ static void load_modifier_settings(void) {
     tangerine_conversion_engine_set_output_pattern(
       conversion_engine, g_settings_get_string(settings, "output-pattern"));
   }
+  auto_open_folder = g_settings_get_boolean(settings, "auto-open-folder");
 }
 
 static void on_settings_changed(GSettings *settings G_GNUC_UNUSED, const char *key, gpointer data G_GNUC_UNUSED) {
@@ -215,7 +285,8 @@ static void on_settings_changed(GSettings *settings G_GNUC_UNUSED, const char *k
       g_str_equal(key, "output-beside-source") ||
       g_str_equal(key, "output-directory") ||
       g_str_equal(key, "default-output-format") ||
-      g_str_equal(key, "output-pattern")) {
+      g_str_equal(key, "output-pattern") ||
+      g_str_equal(key, "auto-open-folder")) {
     load_modifier_settings();
   }
 }
@@ -292,24 +363,56 @@ static void conversion_maybe_finish(void) {
   g_print("Done: %s\n", msg);
   g_free(msg);
 
+  if (auto_open_folder && last_output_path) {
+    GFile *f = g_file_new_for_path(last_output_path);
+    GFile *parent = g_file_get_parent(f);
+    char *uri = g_file_get_uri(parent);
+    GError *error = NULL;
+    if (!g_app_info_launch_default_for_uri(uri, NULL, &error)) {
+      g_warning("open folder failed: %s", error->message);
+      g_error_free(error);
+    }
+    g_free(uri);
+    g_object_unref(parent);
+    g_object_unref(f);
+  }
+
+  reset_batch_tracking();
   release_if_held();
 }
 
 static void on_conversion_complete(TangerineConversionResult result, const char *output_path, const char *error, gpointer user_data) {
   const char *input_path = (const char *)user_data;
+  GFile *f = input_path ? g_file_new_for_path(input_path) : NULL;
+  const char *status = NULL;
+
   if (result == TANGERINE_CONVERSION_SUCCESS) {
     conversions_ok++;
     g_print("Conversion complete: %s\n", output_path);
     add_recent_conversion(input_path, output_path);
+    status = "done";
+    g_free(last_output_path);
+    last_output_path = g_strdup(output_path);
   } else if (result == TANGERINE_CONVERSION_ERROR_CANCELLED) {
     g_print("Conversion cancelled: %s\n", input_path ? input_path : "");
+    status = "cancelled";
   } else {
     conversions_failed++;
     char *msg = g_strdup_printf("Conversion failed: %s", error ? error : "Unknown error");
     g_print("%s\n", msg);
     show_toast(msg);
     g_free(msg);
+    status = "failed";
   }
+
+  if (f) {
+    set_file_status(f, status);
+    g_object_unref(f);
+  }
+
+  completed_files++;
+  update_progress_bar();
+
   g_free((gpointer)input_path);
 
   if (conversions_pending > 0) conversions_pending--;
@@ -478,6 +581,14 @@ static const char *output_format_for_action(const char *action_id) {
 static void convert_one(const char *path, const char *format) {
   conversions_pending++;
   set_converting(TRUE);
+
+  GFile *f = g_file_new_for_path(path);
+  set_file_status(f, "converting");
+  g_object_unref(f);
+
+  if (total_files == 0) total_files = g_list_length(dropped_files);
+  gtk_widget_set_visible(GTK_WIDGET(progress_bar), TRUE);
+
   tangerine_conversion_engine_convert(conversion_engine, path, format,
     on_conversion_progress, on_conversion_complete, g_strdup(path));
 }
@@ -731,6 +842,14 @@ static void ensure_ui(GtkApplication *app, gboolean present) {
   gtk_widget_set_visible(GTK_WIDGET(file_queue), FALSE);
   gtk_box_append(GTK_BOX(inner), GTK_WIDGET(file_queue));
 
+  progress_bar = gtk_progress_bar_new();
+  gtk_progress_bar_set_show_text(GTK_PROGRESS_BAR(progress_bar), TRUE);
+  gtk_progress_bar_set_fraction(GTK_PROGRESS_BAR(progress_bar), 0.0);
+  gtk_widget_set_hexpand(GTK_WIDGET(progress_bar), TRUE);
+  gtk_widget_set_margin_top(GTK_WIDGET(progress_bar), 8);
+  gtk_widget_set_visible(GTK_WIDGET(progress_bar), FALSE);
+  gtk_box_append(GTK_BOX(inner), GTK_WIDGET(progress_bar));
+
   adw_toolbar_view_set_content(view, inner);
 
   toast_overlay = ADW_TOAST_OVERLAY(adw_toast_overlay_new());
@@ -837,6 +956,18 @@ int main(int argc, char **argv) {
   g_object_set_data_full(G_OBJECT(app), "tangerine-settings", g_object_ref(settings), g_object_unref);
   load_modifier_settings();
   g_signal_connect(settings, "changed", G_CALLBACK(on_settings_changed), NULL);
+
+  static const char *css =
+    ".queued { color: #888; }"
+    ".converting { color: #4a90e2; font-weight: bold; }"
+    ".done { color: #4caf50; font-weight: bold; }"
+    ".failed { color: #f44336; font-weight: bold; }";
+  GtkCssProvider *provider = gtk_css_provider_new();
+  gtk_css_provider_load_from_data(provider, css, -1);
+  gtk_style_context_add_provider_for_display(
+    gdk_display_get_default(), GTK_STYLE_PROVIDER(provider),
+    GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+  g_object_unref(provider);
 
   g_signal_connect(app, "activate", G_CALLBACK(on_activate), NULL);
   g_signal_connect(app, "command-line", G_CALLBACK(on_command_line), NULL);

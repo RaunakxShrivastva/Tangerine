@@ -47,6 +47,11 @@ Drag files onto the window. Hold a modifier to switch the radial menu:
 - **Output filename pattern** — configurable `{name}_converted.{format}`
   pattern with `{name}`, `{ext}`, `{format}` tokens (GSettings key
   `output-pattern`).
+- **Batch progress bar** — overall progress shown while converting multiple
+  files; each queued file shows status (queued / converting / done / failed)
+  with color-coded labels.
+- **Auto-open output folder** — GSettings key `auto-open-folder` opens the
+  output folder automatically after a batch completes.
 - **About dialog** — version, license, and project links from Preferences.
 
 ### Command line

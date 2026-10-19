@@ -26,6 +26,11 @@
       <summary>Output filename pattern</summary>
       <description>Tokens: {name} = source basename without extension, {ext} = source extension, {format} = output format</description>
     </key>
+    <key name="auto-open-folder" type="b">
+      <default>false</default>
+      <summary>Open output folder after batch completes</summary>
+      <description>When enabled, the output folder opens automatically after a batch conversion finishes</description>
+    </key>
     <key name="image-quality" type="s">
       <default>"high"</default>
       <summary>Image conversion quality</summary>
