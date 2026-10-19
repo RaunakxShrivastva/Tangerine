@@ -193,6 +193,28 @@ static void load_modifier_settings(void) {
     g_settings_get_string(settings, "modifier-tools"));
   modifier_fileops_mask = modifier_mask_from_string(
     g_settings_get_string(settings, "modifier-fileops"));
+
+  if (conversion_engine) {
+    tangerine_conversion_engine_set_image_quality(
+      conversion_engine, g_settings_get_string(settings, "image-quality"));
+    tangerine_conversion_engine_set_video_quality(
+      conversion_engine, g_settings_get_string(settings, "video-quality"));
+    tangerine_conversion_engine_set_audio_quality(
+      conversion_engine, g_settings_get_string(settings, "audio-quality"));
+  }
+}
+
+static void on_settings_changed(GSettings *settings G_GNUC_UNUSED, const char *key, gpointer data G_GNUC_UNUSED) {
+  if (g_str_has_prefix(key, "modifier-") ||
+      g_str_has_prefix(key, "image-quality") ||
+      g_str_has_prefix(key, "video-quality") ||
+      g_str_has_prefix(key, "audio-quality") ||
+      g_str_equal(key, "show-notifications") ||
+      g_str_equal(key, "output-beside-source") ||
+      g_str_equal(key, "output-directory") ||
+      g_str_equal(key, "default-output-format")) {
+    load_modifier_settings();
+  }
 }
 
 static TangerineActionMode mode_from_modifiers(GdkModifierType state) {
@@ -298,34 +320,44 @@ static void on_file_op_done(gboolean success, const char *message, gpointer user
   release_if_held();
 }
 
-static void open_output_folder(const char *output_path) {
-  GFile *f = g_file_new_for_path(output_path);
-  GFile *parent = g_file_get_parent(f);
-  char *uri = g_file_get_uri(parent);
+static void open_file_uri(const char *uri) {
   GError *error = NULL;
   if (!g_app_info_launch_default_for_uri(uri, NULL, &error)) {
-    g_warning("open folder failed: %s", error->message);
+    g_warning("open file failed: %s", error->message);
     g_error_free(error);
-    notify("Tangerine", "Failed to open output folder");
-    show_toast("Failed to open output folder");
+    notify("Tangerine", "Failed to open file");
+    show_toast("Failed to open file");
   }
-  g_free(uri);
-  g_object_unref(parent);
-  g_object_unref(f);
 }
 
-static void on_recent_row_activated(GtkButton *button G_GNUC_UNUSED, gpointer data) {
+static void on_recent_open_file(GtkButton *button G_GNUC_UNUSED, gpointer data) {
   GtkWidget *row = GTK_WIDGET(data);
   GFile *f = g_object_get_data(G_OBJECT(row), "tangerine-recent-output");
   if (f) {
-    char *path = g_file_get_path(f);
-    if (path) {
-      open_output_folder(path);
-      g_free(path);
+    char *uri = g_file_get_uri(f);
+    if (uri) {
+      open_file_uri(uri);
+      g_free(uri);
     }
+    if (recent_popover) gtk_popover_popdown(recent_popover);
     g_object_unref(f);
   }
-  if (recent_popover) gtk_popover_popdown(recent_popover);
+}
+
+static void on_recent_open_folder(GtkButton *button G_GNUC_UNUSED, gpointer data) {
+  GtkWidget *row = GTK_WIDGET(data);
+  GFile *f = g_object_get_data(G_OBJECT(row), "tangerine-recent-output");
+  if (f) {
+    GFile *parent = g_file_get_parent(f);
+    char *uri = g_file_get_uri(parent);
+    if (uri) {
+      open_file_uri(uri);
+      g_free(uri);
+    }
+    g_object_unref(parent);
+    if (recent_popover) gtk_popover_popdown(recent_popover);
+    g_object_unref(f);
+  }
 }
 
 static void rebuild_recent_popover(void) {
@@ -372,12 +404,20 @@ static void rebuild_recent_popover(void) {
     gtk_widget_set_hexpand(lbl, TRUE);
     gtk_box_append(GTK_BOX(box), lbl);
 
-    GtkWidget *open_btn = gtk_button_new_from_icon_name("folder-open-symbolic");
-    gtk_button_set_has_frame(GTK_BUTTON(open_btn), FALSE);
-    gtk_widget_set_tooltip_text(open_btn, "Open output folder");
-    g_object_set_data_full(G_OBJECT(open_btn), "tangerine-recent-output", g_object_ref(out_f), g_object_unref);
-    g_signal_connect(open_btn, "clicked", G_CALLBACK(on_recent_row_activated), row);
-    gtk_box_append(GTK_BOX(box), open_btn);
+    g_object_set_data_full(G_OBJECT(row), "tangerine-recent-input", g_object_ref(in_f), g_object_unref);
+    g_object_set_data_full(G_OBJECT(row), "tangerine-recent-output", g_object_ref(out_f), g_object_unref);
+
+    GtkWidget *open_file_btn = gtk_button_new_from_icon_name("document-open-symbolic");
+    gtk_button_set_has_frame(GTK_BUTTON(open_file_btn), FALSE);
+    gtk_widget_set_tooltip_text(open_file_btn, "Open file");
+    g_signal_connect(open_file_btn, "clicked", G_CALLBACK(on_recent_open_file), row);
+    gtk_box_append(GTK_BOX(box), open_file_btn);
+
+    GtkWidget *open_folder_btn = gtk_button_new_from_icon_name("folder-open-symbolic");
+    gtk_button_set_has_frame(GTK_BUTTON(open_folder_btn), FALSE);
+    gtk_widget_set_tooltip_text(open_folder_btn, "Open output folder");
+    g_signal_connect(open_folder_btn, "clicked", G_CALLBACK(on_recent_open_folder), row);
+    gtk_box_append(GTK_BOX(box), open_folder_btn);
 
     gtk_list_box_row_set_child(GTK_LIST_BOX_ROW(row), box);
     gtk_list_box_append(GTK_LIST_BOX(gtk_popover_get_child(recent_popover)), row);
@@ -705,6 +745,7 @@ static void ensure_ui(GtkApplication *app, gboolean present) {
   const char *fmt_path = "src/formats.yaml";
   if (!g_file_test(fmt_path, G_FILE_TEST_EXISTS)) fmt_path = "/app/share/tangerine/formats.yaml";
   tangerine_conversion_engine_load_formats(conversion_engine, fmt_path);
+  load_modifier_settings();
 
   GdkDisplay *display = gdk_display_get_default();
   drag_monitor = tangerine_drag_monitor_new(display);
@@ -792,6 +833,7 @@ int main(int argc, char **argv) {
   settings = g_settings_new(TANGERINE_APP_ID);
   g_object_set_data_full(G_OBJECT(app), "tangerine-settings", g_object_ref(settings), g_object_unref);
   load_modifier_settings();
+  g_signal_connect(settings, "changed", G_CALLBACK(on_settings_changed), NULL);
 
   g_signal_connect(app, "activate", G_CALLBACK(on_activate), NULL);
   g_signal_connect(app, "command-line", G_CALLBACK(on_command_line), NULL);

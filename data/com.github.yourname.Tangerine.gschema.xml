@@ -21,6 +21,21 @@
       <summary>Default format when converting with no modifier</summary>
       <description>Format used when dropping files without holding a modifier</description>
     </key>
+    <key name="image-quality" type="s">
+      <default>"high"</default>
+      <summary>Image conversion quality</summary>
+      <description>low, medium, high, lossless</description>
+    </key>
+    <key name="video-quality" type="s">
+      <default>"high"</default>
+      <summary>Video conversion quality</summary>
+      <description>low, medium, high, lossless</description>
+    </key>
+    <key name="audio-quality" type="s">
+      <default>"high"</default>
+      <summary>Audio conversion quality</summary>
+      <description>low, medium, high, lossless</description>
+    </key>
     <key name="recent-conversions" type="as">
       <default>[]</default>
       <summary>Recent conversions</summary>

@@ -34,13 +34,17 @@ Drag files onto the window. Hold a modifier to switch the radial menu:
   if that exists, `_1`, `_2`… is appended.
 - Conversion progress, per-file queue, error toasts, and desktop notifications.
 - **Recent conversions** — click the recent icon in the header bar to see recent
-  conversions and open their output folder. Persisted in GSettings.
+  conversions; open the file or its output folder. Persisted in GSettings.
 - **Cancel** — click the stop icon in the header bar to cancel in-flight
   conversions while a batch is running.
 - **Configurable modifiers** — the modifier key that triggers each menu
   (convert / tools / file ops) is set via GSettings keys
   `modifier-convert`, `modifier-tools`, `modifier-fileops` (default: shift /
   super / ctrl).
+- **Per-category quality presets** — set image/video/audio quality
+  (low / medium / high / lossless) in Preferences; applied to vips/ffmpeg
+  commands at conversion time.
+- **About dialog** — version, license, and project links from Preferences.
 
 ### Command line
 ```bash

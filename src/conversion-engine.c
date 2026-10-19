@@ -10,9 +10,13 @@ struct _TangerineConversionEngine {
   GCancellable *global_cancellable;
   char *output_dir;
   gboolean cancelled;
+  char *image_quality;
+  char *video_quality;
+  char *audio_quality;
 };
 
 typedef struct {
+  TangerineConversionEngine *engine;
   char *input_path;
   char *output_path;
   char *pipeline_name;
@@ -54,27 +58,28 @@ static void run_pipeline_image(ConversionJob *job) {
   update_progress(job, 0.1, "Initializing image conversion...");
 
   char *cmd = NULL;
+  const char *q = tangerine_conversion_engine_quality_value(job->engine, "image", "50", "75", "90", "100");
 
   if (g_strcmp0(pipeline, "heic-to-jpeg") == 0 || g_strcmp0(pipeline, "heic-to-png") == 0) {
     update_progress(job, 0.2, "Reading HEIC...");
-    cmd = g_strdup_printf("heif-convert -q 90 \"%s\" \"%s\"", input, output);
+    cmd = g_strdup_printf("heif-convert -q %s \"%s\" \"%s\"", q, input, output);
   }
   else if (g_strcmp0(pipeline, "avif-to-jpeg") == 0 || g_strcmp0(pipeline, "avif-to-png") == 0) {
     update_progress(job, 0.2, "Reading AVIF...");
     cmd = g_strdup_printf("avifdec \"%s\" \"%s\"", input, output);
   }
   else if (g_strcmp0(pipeline, "jpeg-to-webp") == 0) {
-    cmd = g_strdup_printf("vips copy \"%s\" \"%s[Q=85]\"", input, output);
+    cmd = g_strdup_printf("vips copy \"%s\" \"%s[Q=%s]\"", input, output, q);
   }
   else if (g_strcmp0(pipeline, "png-to-jpeg") == 0) {
-    cmd = g_strdup_printf("vips copy \"%s\" \"%s[Q=90]\"", input, output);
+    cmd = g_strdup_printf("vips copy \"%s\" \"%s[Q=%s]\"", input, output, q);
   }
   else if (g_strcmp0(pipeline, "png-to-webp") == 0) {
-    cmd = g_strdup_printf("vips copy \"%s\" \"%s[Q=85]\"", input, output);
+    cmd = g_strdup_printf("vips copy \"%s\" \"%s[Q=%s]\"", input, output, q);
   }
   else if (g_strcmp0(pipeline, "compress-image") == 0) {
     update_progress(job, 0.2, "Compressing image...");
-    cmd = g_strdup_printf("vips copy \"%s\" \"%s[Q=75,strip]\"", input, output);
+    cmd = g_strdup_printf("vips copy \"%s\" \"%s[Q=%s,strip]\"", input, output, q);
   }
   else if (g_strcmp0(pipeline, "crop-image") == 0) {
     update_progress(job, 0.2, "Cropping image...");
@@ -115,6 +120,7 @@ static void run_pipeline_video(ConversionJob *job) {
   update_progress(job, 0.1, "Initializing video conversion...");
 
   char *cmd = NULL;
+  const char *q = tangerine_conversion_engine_quality_value(job->engine, "video", "28", "23", "18", "0");
 
   if (g_strcmp0(pipeline, "mp4-to-mkv") == 0) {
     cmd = g_strdup_printf("ffmpeg -y -i \"%s\" -c copy \"%s\"", input, output);
@@ -132,7 +138,7 @@ static void run_pipeline_video(ConversionJob *job) {
     cmd = g_strdup_printf("ffmpeg -y -i \"%s\" -ss 00:00:10 -t 00:00:30 -c copy \"%s\"", input, output);
   }
   else if (g_strcmp0(pipeline, "compress-video") == 0) {
-    cmd = g_strdup_printf("ffmpeg -y -i \"%s\" -vcodec libx265 -crf 28 \"%s\"", input, output);
+    cmd = g_strdup_printf("ffmpeg -y -i \"%s\" -vcodec libx265 -crf %s \"%s\"", input, q, output);
   }
   else {
     cmd = g_strdup_printf("ffmpeg -y -i \"%s\" \"%s\"", input, output);
@@ -164,21 +170,23 @@ static void run_pipeline_audio(ConversionJob *job) {
   update_progress(job, 0.1, "Initializing audio conversion...");
 
   char *cmd = NULL;
+  const char *q = tangerine_conversion_engine_quality_value(job->engine, "audio", "4", "5", "2", "0");
+  const char *br = tangerine_conversion_engine_quality_value(job->engine, "audio", "64k", "128k", "192k", "256k");
 
   if (g_strcmp0(pipeline, "mp3-to-flac") == 0) {
     cmd = g_strdup_printf("ffmpeg -y -i \"%s\" -c:a flac \"%s\"", input, output);
   }
   else if (g_strcmp0(pipeline, "flac-to-mp3") == 0) {
-    cmd = g_strdup_printf("ffmpeg -y -i \"%s\" -c:a libmp3lame -q:a 2 \"%s\"", input, output);
+    cmd = g_strdup_printf("ffmpeg -y -i \"%s\" -c:a libmp3lame -q:a %s \"%s\"", input, q, output);
   }
   else if (g_strcmp0(pipeline, "wav-to-mp3") == 0) {
-    cmd = g_strdup_printf("ffmpeg -y -i \"%s\" -c:a libmp3lame -q:a 2 \"%s\"", input, output);
+    cmd = g_strdup_printf("ffmpeg -y -i \"%s\" -c:a libmp3lame -q:a %s \"%s\"", input, q, output);
   }
   else if (g_strcmp0(pipeline, "opus-to-mp3") == 0) {
-    cmd = g_strdup_printf("ffmpeg -y -i \"%s\" -c:a libmp3lame -q:a 2 \"%s\"", input, output);
+    cmd = g_strdup_printf("ffmpeg -y -i \"%s\" -c:a libmp3lame -q:a %s \"%s\"", input, q, output);
   }
   else if (g_strcmp0(pipeline, "compress-audio") == 0) {
-    cmd = g_strdup_printf("ffmpeg -y -i \"%s\" -c:a libopus -b:a 96k \"%s\"", input, output);
+    cmd = g_strdup_printf("ffmpeg -y -i \"%s\" -c:a libopus -b:a %s \"%s\"", input, br, output);
   }
   else {
     cmd = g_strdup_printf("ffmpeg -y -i \"%s\" \"%s\"", input, output);
@@ -407,6 +415,9 @@ static void tangerine_conversion_engine_finalize(GObject *object) {
   if (self->format_map) g_hash_table_unref(self->format_map);
   if (self->global_cancellable) g_object_unref(self->global_cancellable);
   g_free(self->output_dir);
+  g_free(self->image_quality);
+  g_free(self->video_quality);
+  g_free(self->audio_quality);
 
   G_OBJECT_CLASS(tangerine_conversion_engine_parent_class)->finalize(object);
 }
@@ -421,6 +432,9 @@ static void tangerine_conversion_engine_init(TangerineConversionEngine *self) {
   self->thread_pool = g_thread_pool_new(job_thread_func, self, 4, FALSE, NULL);
   self->global_cancellable = g_cancellable_new();
   self->output_dir = NULL;
+  self->image_quality = g_strdup("high");
+  self->video_quality = g_strdup("high");
+  self->audio_quality = g_strdup("high");
 }
 
 TangerineConversionEngine *tangerine_conversion_engine_new(void) {
@@ -430,6 +444,38 @@ TangerineConversionEngine *tangerine_conversion_engine_new(void) {
 void tangerine_conversion_engine_set_output_dir(TangerineConversionEngine *self, const char *dir) {
   g_free(self->output_dir);
   self->output_dir = (dir && *dir) ? g_strdup(dir) : NULL;
+}
+
+static const char *quality_to_value(const char *quality, const char *low, const char *medium, const char *high, const char *lossless) {
+  if (g_str_equal(quality, "low")) return low;
+  if (g_str_equal(quality, "medium")) return medium;
+  if (g_str_equal(quality, "high")) return high;
+  if (g_str_equal(quality, "lossless")) return lossless;
+  return high;
+}
+
+void tangerine_conversion_engine_set_image_quality(TangerineConversionEngine *self, const char *q) {
+  g_free(self->image_quality);
+  self->image_quality = g_strdup(q ? q : "high");
+}
+
+void tangerine_conversion_engine_set_video_quality(TangerineConversionEngine *self, const char *q) {
+  g_free(self->video_quality);
+  self->video_quality = g_strdup(q ? q : "high");
+}
+
+void tangerine_conversion_engine_set_audio_quality(TangerineConversionEngine *self, const char *q) {
+  g_free(self->audio_quality);
+  self->audio_quality = g_strdup(q ? q : "high");
+}
+
+const char *tangerine_conversion_engine_quality_value(TangerineConversionEngine *self,
+  const char *category, const char *low, const char *medium, const char *high, const char *lossless) {
+  const char *q = NULL;
+  if (g_str_equal(category, "image")) q = self->image_quality;
+  else if (g_str_equal(category, "video")) q = self->video_quality;
+  else if (g_str_equal(category, "audio")) q = self->audio_quality;
+  return quality_to_value(q, low, medium, high, lossless);
 }
 
 static void load_yaml_formats(TangerineConversionEngine *self, const char *yaml_path) {
@@ -601,6 +647,7 @@ void tangerine_conversion_engine_convert_to(TangerineConversionEngine *self,
   gpointer user_data) {
 
   ConversionJob *job = g_new0(ConversionJob, 1);
+  job->engine = self;
   job->input_path = g_strdup(input_path);
   job->output_path = g_strdup(output_path);
   job->pipeline_name = g_strdup(pipeline_name ? pipeline_name : "default");

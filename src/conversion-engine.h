@@ -29,6 +29,11 @@ typedef struct {
 TangerineConversionEngine *tangerine_conversion_engine_new(void);
 void tangerine_conversion_engine_load_formats(TangerineConversionEngine *self, const char *yaml_path);
 void tangerine_conversion_engine_set_output_dir(TangerineConversionEngine *self, const char *dir);
+void tangerine_conversion_engine_set_image_quality(TangerineConversionEngine *self, const char *q);
+void tangerine_conversion_engine_set_video_quality(TangerineConversionEngine *self, const char *q);
+void tangerine_conversion_engine_set_audio_quality(TangerineConversionEngine *self, const char *q);
+const char *tangerine_conversion_engine_quality_value(TangerineConversionEngine *self,
+  const char *category, const char *low, const char *medium, const char *high, const char *lossless);
 void tangerine_conversion_engine_convert(TangerineConversionEngine *self,
   const char *input_path,
   const char *output_format,
