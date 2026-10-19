@@ -15,12 +15,16 @@ static TangerineConversionEngine *conversion_engine = NULL;
 static GtkWindow *main_window = NULL;
 static AdwApplication *app_instance = NULL;
 static GSettings *settings = NULL;
+static GdkModifierType modifier_convert_mask = GDK_SHIFT_MASK;
+static GdkModifierType modifier_tools_mask = GDK_SUPER_MASK;
+static GdkModifierType modifier_fileops_mask = GDK_CONTROL_MASK;
 static gboolean ui_ready = FALSE;
 
 static AdwToastOverlay *toast_overlay = NULL;
 static GtkWidget *status_label = NULL;
 static GtkWidget *spinner = NULL;
 static GtkPopover *recent_popover = NULL;
+static GtkWidget *cancel_button = NULL;
 
 static GList *dropped_files = NULL;
 static GtkListBox *file_queue = NULL;
@@ -173,9 +177,28 @@ static void show_toast(const char *message) {
   g_object_unref(toast);
 }
 
+static GdkModifierType modifier_mask_from_string(const char *s) {
+  if (!s) return 0;
+  if (g_str_equal(s, "shift")) return GDK_SHIFT_MASK;
+  if (g_str_equal(s, "ctrl") || g_str_equal(s, "control")) return GDK_CONTROL_MASK;
+  if (g_str_equal(s, "super") || g_str_equal(s, "meta")) return GDK_SUPER_MASK;
+  return 0;
+}
+
+static void load_modifier_settings(void) {
+  if (!settings) return;
+  modifier_convert_mask = modifier_mask_from_string(
+    g_settings_get_string(settings, "modifier-convert"));
+  modifier_tools_mask = modifier_mask_from_string(
+    g_settings_get_string(settings, "modifier-tools"));
+  modifier_fileops_mask = modifier_mask_from_string(
+    g_settings_get_string(settings, "modifier-fileops"));
+}
+
 static TangerineActionMode mode_from_modifiers(GdkModifierType state) {
-  if (state & GDK_CONTROL_MASK) return TANGERINE_ACTION_FILE_OPS;
-  if (state & GDK_SHIFT_MASK) return TANGERINE_ACTION_TOOLS;
+  if (state & modifier_fileops_mask) return TANGERINE_ACTION_FILE_OPS;
+  if (state & modifier_tools_mask) return TANGERINE_ACTION_TOOLS;
+  if (state & modifier_convert_mask) return TANGERINE_ACTION_CONVERT;
   return TANGERINE_ACTION_CONVERT;
 }
 
@@ -200,6 +223,7 @@ static void set_converting(gboolean converting) {
       gtk_widget_set_visible(spinner, FALSE);
     }
   }
+  if (cancel_button) gtk_widget_set_visible(cancel_button, converting);
   if (dropped_files) set_queue_status(converting ? "converting" : "done");
   if (status_label) {
     if (converting) {
@@ -229,10 +253,14 @@ static void conversion_maybe_finish(void) {
   set_converting(FALSE);
 
   char *msg;
-  if (conversions_failed == 0)
+  gboolean any_done = (conversions_ok > 0) || (conversions_failed > 0);
+  if (!any_done) {
+    msg = g_strdup("Conversion cancelled");
+  } else if (conversions_failed == 0) {
     msg = g_strdup_printf("Converted %u file(s) successfully", conversions_ok);
-  else
+  } else {
     msg = g_strdup_printf("%u succeeded, %u failed", conversions_ok, conversions_failed);
+  }
 
   notify("Tangerine", msg);
   show_toast(msg);
@@ -248,6 +276,8 @@ static void on_conversion_complete(TangerineConversionResult result, const char 
     conversions_ok++;
     g_print("Conversion complete: %s\n", output_path);
     add_recent_conversion(input_path, output_path);
+  } else if (result == TANGERINE_CONVERSION_ERROR_CANCELLED) {
+    g_print("Conversion cancelled: %s\n", input_path ? input_path : "");
   } else {
     conversions_failed++;
     char *msg = g_strdup_printf("Conversion failed: %s", error ? error : "Unknown error");
@@ -382,6 +412,14 @@ static void on_recent_clicked(GtkButton *button G_GNUC_UNUSED, gpointer data G_G
   rebuild_recent_popover();
   gtk_widget_set_parent(GTK_WIDGET(recent_popover), GTK_WIDGET(button));
   gtk_popover_popup(recent_popover);
+}
+
+static void on_cancel_clicked(GtkButton *button G_GNUC_UNUSED, gpointer data G_GNUC_UNUSED) {
+  if (!conversion_engine) return;
+  tangerine_conversion_engine_cancel(conversion_engine, NULL);
+  set_converting(FALSE);
+  notify("Tangerine", "Conversion cancelled");
+  show_toast("Conversion cancelled");
 }
 
 static const char *output_format_for_action(const char *action_id) {
@@ -538,8 +576,8 @@ static gboolean on_drop(GtkDropTarget *target, const GValue *value, double x G_G
 
   g_print("Dropped %u file(s), modifiers=0x%x\n", g_list_length(dropped_files), state);
 
-  gboolean direct_convert = (state & GDK_CONTROL_MASK) == FALSE &&
-    (state & GDK_SHIFT_MASK) == FALSE;
+  gboolean direct_convert = !(state & modifier_convert_mask) &&
+    !(state & modifier_tools_mask) && !(state & modifier_fileops_mask);
 
   if (direct_convert && dropped_files) {
     TangerineActionMode mode = mode_from_modifiers(state);
@@ -612,8 +650,14 @@ static void ensure_ui(GtkApplication *app, gboolean present) {
   GtkWidget *recent_button = gtk_button_new_from_icon_name("document-open-recent-symbolic");
   gtk_widget_set_tooltip_text(recent_button, "Recent conversions");
   g_signal_connect(recent_button, "clicked", G_CALLBACK(on_recent_clicked), NULL);
+
+  cancel_button = gtk_button_new_from_icon_name("process-stop-symbolic");
+  gtk_widget_set_tooltip_text(cancel_button, "Cancel conversions");
+  gtk_widget_set_visible(cancel_button, FALSE);
+  g_signal_connect(cancel_button, "clicked", G_CALLBACK(on_cancel_clicked), NULL);
   adw_header_bar_pack_end(header, prefs_button);
   adw_header_bar_pack_end(header, recent_button);
+  adw_header_bar_pack_end(header, cancel_button);
   adw_toolbar_view_add_top_bar(view, GTK_WIDGET(header));
 
   GtkWidget *inner = gtk_box_new(GTK_ORIENTATION_VERTICAL, 12);
@@ -747,6 +791,7 @@ int main(int argc, char **argv) {
 
   settings = g_settings_new(TANGERINE_APP_ID);
   g_object_set_data_full(G_OBJECT(app), "tangerine-settings", g_object_ref(settings), g_object_unref);
+  load_modifier_settings();
 
   g_signal_connect(app, "activate", G_CALLBACK(on_activate), NULL);
   g_signal_connect(app, "command-line", G_CALLBACK(on_command_line), NULL);

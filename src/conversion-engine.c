@@ -9,6 +9,7 @@ struct _TangerineConversionEngine {
   GThreadPool *thread_pool;
   GCancellable *global_cancellable;
   char *output_dir;
+  gboolean cancelled;
 };
 
 typedef struct {
@@ -606,7 +607,7 @@ void tangerine_conversion_engine_convert_to(TangerineConversionEngine *self,
   job->progress_cb = progress_cb;
   job->complete_cb = complete_cb;
   job->user_data = user_data;
-  job->cancellable = g_cancellable_new();
+  job->cancellable = g_object_ref(self->global_cancellable);
 
   g_thread_pool_push(self->thread_pool, job, NULL);
 }
@@ -650,6 +651,8 @@ void tangerine_conversion_engine_convert(TangerineConversionEngine *self,
 
 void tangerine_conversion_engine_cancel(TangerineConversionEngine *self, const char *input_path G_GNUC_UNUSED) {
   g_cancellable_cancel(self->global_cancellable);
+  g_clear_object(&self->global_cancellable);
+  self->global_cancellable = g_cancellable_new();
 }
 
 GList *tangerine_conversion_engine_missing_tools(void) {
