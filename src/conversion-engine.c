@@ -617,6 +617,34 @@ static const char *extension_for_mime(const char *mime) {
   return NULL;
 }
 
+GList *tangerine_conversion_engine_get_input_extensions(TangerineConversionEngine *self) {
+  GList *result = NULL;
+  GList *keys = g_hash_table_get_keys(self->format_map);
+
+  for (GList *l = keys; l; l = l->next) {
+    const char *key = l->data;
+    const char *arrow = strchr(key, '-');
+    if (!arrow || arrow[1] != '>') continue;
+    gsize in_len = arrow - key;
+    char *in_mime = g_strndup(key, in_len);
+    const char *ext = extension_for_mime(in_mime);
+    g_free(in_mime);
+    if (!ext) continue;
+
+    gboolean found = FALSE;
+    for (GList *r = result; r; r = r->next) {
+      if (g_ascii_strcasecmp(r->data, ext) == 0) {
+        found = TRUE;
+        break;
+      }
+    }
+    if (!found) result = g_list_prepend(result, g_strdup(ext));
+  }
+
+  g_list_free(keys);
+  return g_list_reverse(result);
+}
+
 char *tangerine_conversion_engine_default_output_format(TangerineConversionEngine *self G_GNUC_UNUSED,
   const char *input_path) {
 

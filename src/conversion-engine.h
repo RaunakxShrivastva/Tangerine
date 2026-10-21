@@ -57,5 +57,6 @@ char *tangerine_conversion_engine_default_output_format(TangerineConversionEngin
 void tangerine_conversion_engine_cancel(TangerineConversionEngine *self, const char *input_path);
 
 GList *tangerine_conversion_engine_missing_tools(void);
+GList *tangerine_conversion_engine_get_input_extensions(TangerineConversionEngine *self);
 
 G_END_DECLS

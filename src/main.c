@@ -43,6 +43,7 @@ static GdkModifierType hotkey_modifiers = GDK_SUPER_MASK | GDK_SHIFT_MASK;
 static GtkEventController *hotkey_controller = NULL;
 static gulong hotkey_handler_id = 0;
 static guint recent_limit = 10;
+static GList *supported_extensions = NULL;
 
 static char *cli_action = NULL;
 static char *cli_convert_to = NULL;
@@ -730,6 +731,59 @@ static void on_preferences(GtkButton *button G_GNUC_UNUSED, gpointer data) {
   adw_dialog_present(ADW_DIALOG(prefs), window ? GTK_WIDGET(window) : GTK_WIDGET(main_window));
 }
 
+static gboolean is_extension_supported(const char *ext) {
+  if (!ext || !supported_extensions) return FALSE;
+  for (GList *l = supported_extensions; l; l = l->next) {
+    if (g_ascii_strcasecmp(l->data, ext) == 0) return TRUE;
+  }
+  return FALSE;
+}
+
+static void collect_files_from_path(GFile *file, GList **list) {
+  if (!file) return;
+
+  GFileInfo *info = g_file_query_info(file, "standard::type", G_FILE_QUERY_INFO_NOFOLLOW_SYMLINKS, NULL, NULL);
+  gboolean is_dir = info && g_file_info_get_file_type(info) == G_FILE_TYPE_DIRECTORY;
+  if (info) g_object_unref(info);
+  if (g_file_is_native(file) && is_dir) {
+    GFileEnumerator *enumerator = g_file_enumerate_children(file,
+      "standard::name,standard::is-hidden,standard::is-symlink,standard::type",
+      G_FILE_QUERY_INFO_NOFOLLOW_SYMLINKS, NULL, NULL);
+    if (!enumerator) {
+      g_object_unref(file);
+      return;
+    }
+
+    GFileInfo *info;
+    while ((info = g_file_enumerator_next_file(enumerator, NULL, NULL))) {
+      const char *name = g_file_info_get_name(info);
+      if (g_str_has_prefix(name, ".")) {
+        g_object_unref(info);
+        continue;
+      }
+      GFile *child = g_file_get_child(file, name);
+      g_object_unref(info);
+      collect_files_from_path(child, list);
+      g_object_unref(child);
+    }
+    g_object_unref(enumerator);
+    g_object_unref(file);
+  } else {
+    const char *path = g_file_get_path(file);
+    if (path) {
+      const char *dot = strrchr(path, '.');
+      const char *ext = dot ? dot + 1 : "";
+      if (is_extension_supported(ext)) {
+        *list = g_list_prepend(*list, g_object_ref(file));
+      } else {
+        g_object_unref(file);
+      }
+    } else {
+      g_object_unref(file);
+    }
+  }
+}
+
 static gboolean on_drop(GtkDropTarget *target, const GValue *value, double x G_GNUC_UNUSED, double y G_GNUC_UNUSED, gpointer data G_GNUC_UNUSED) {
   GdkFileList *file_list = g_value_get_boxed(value);
   if (!file_list) return FALSE;
@@ -738,8 +792,10 @@ static gboolean on_drop(GtkDropTarget *target, const GValue *value, double x G_G
   if (!files) return FALSE;
 
   clear_dropped_files();
-  for (GSList *l = files; l; l = l->next)
-    dropped_files = g_list_prepend(dropped_files, g_object_ref(l->data));
+  for (GSList *l = files; l; l = l->next) {
+    GFile *f = g_object_ref(l->data);
+    collect_files_from_path(f, &dropped_files);
+  }
   dropped_files = g_list_reverse(dropped_files);
   rebuild_file_queue();
 
@@ -906,6 +962,13 @@ static void ensure_ui(GtkApplication *app, gboolean present) {
   if (!g_file_test(fmt_path, G_FILE_TEST_EXISTS)) fmt_path = "/app/share/tangerine/formats.yaml";
   tangerine_conversion_engine_load_formats(conversion_engine, fmt_path);
   load_modifier_settings();
+
+  g_list_free_full(supported_extensions, g_free);
+  supported_extensions = tangerine_conversion_engine_get_input_extensions(conversion_engine);
+  g_print("Supported input extensions: ");
+  for (GList *l = supported_extensions; l; l = l->next)
+    g_print("%s ", (const char *)l->data);
+  g_print("\n");
 
   GdkDisplay *display = gdk_display_get_default();
   drag_monitor = tangerine_drag_monitor_new(display);
